@@ -42,6 +42,25 @@ pip install PyQt6 psutil Pillow PyInstaller
 ```
 python main.py
 ```
+4. 运行界面
+
+4.1 选择Claude Code默认参数
+
+![选择Claude Code默认参数](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/01-claude.png)
+
+4.2 调用deepseek模型
+
+![选择deepseek模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/02-deepseek.png)
+![运行deepseek模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/02b-deepseek.png)
+
+4.3 调用kimi模型
+![选择kimi模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/03-kimi.png)
+![运行kimi模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/03b-kimi.png)
+
+4.4 调用智谱模型
+![选择智谱模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/04-gml.png)
+![运行智谱模型](https://github.com/oucanrong/cc-model-selector/blob/main/screenshot/04b-gml.png)
+
 
 技术交流群：
 
