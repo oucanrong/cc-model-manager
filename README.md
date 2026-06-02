@@ -51,6 +51,7 @@
 
 4.6 支持第3方GPT中转
 ![选择3方GPT中转](https://github.com/oucanrong/cc-model-manager/blob/main/screenshot/06-gpt-proxy.png)
+![使用3方GPT中转](https://github.com/oucanrong/cc-model-manager/blob/main/screenshot/06b-gpt-proxy.png)
 
 ### 选项 B：从源码运行（适合开发者）
 
