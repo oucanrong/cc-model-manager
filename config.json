@@ -1,7 +1,15 @@
 {
   "provider": "Claude官方接口",
   "auth_tokens": {
-    "Claude官方接口": ""
+    "Claude官方接口": "",
+    "DeepSeek": "",
+    "Kimi": "",
+    "智谱GML": "",
+    "阿里千问": "",
+    "MINIMAX": "",
+    "小米MiMo": "",
+    "方舟Coding Plan": "",
+    "Claude中转": ""
   },
   "project_path": "",
   "recent_projects": [],
