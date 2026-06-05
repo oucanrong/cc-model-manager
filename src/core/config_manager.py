@@ -54,6 +54,8 @@ class ProviderSettings:
     # GML5 专用
     disable_nonessential_traffic: str = "1"
     api_timeout_ms: str = "3000000"
+    # 小米MiMo / 方舟Coding Plan 专用
+    has_completed_onboarding: str = "true"
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
 
 
@@ -74,6 +76,8 @@ class AppConfig:
     # GML5 专用
     disable_nonessential_traffic: str = "1"
     api_timeout_ms: str = "3000000"
+    # 小米MiMo / 方舟Coding Plan 专用
+    has_completed_onboarding: str = "true"
     project_path: str = ""
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     recent_projects: list[str] = field(default_factory=list)
@@ -140,6 +144,8 @@ class ConfigManager:
         # GML5 专用参数
         config.disable_nonessential_traffic = ps.disable_nonessential_traffic or preset.disable_nonessential_traffic_default
         config.api_timeout_ms = ps.api_timeout_ms or preset.api_timeout_ms_default
+        # 小米MiMo / 方舟Coding Plan 专用参数
+        config.has_completed_onboarding = ps.has_completed_onboarding or preset.has_completed_onboarding_default
 
     def _flush_active_provider(self, config: AppConfig) -> None:
         """将 config 顶层字段写回 provider_settings 中当前 provider 的条目。"""
@@ -157,6 +163,7 @@ class ConfigManager:
             enable_tool_search=config.enable_tool_search,
             disable_nonessential_traffic=config.disable_nonessential_traffic,
             api_timeout_ms=config.api_timeout_ms,
+            has_completed_onboarding=config.has_completed_onboarding,
             # 深拷贝代理配置——关键：确保保存到 provider_settings 的 proxy
             # 与 config.proxy 是完全独立的对象，互不干扰
             proxy=copy.deepcopy(config.proxy),
@@ -183,6 +190,7 @@ class ConfigManager:
                 enable_tool_search=str(v.get("enable_tool_search", "") or "false"),
                 disable_nonessential_traffic=str(v.get("disable_nonessential_traffic", "") or "1"),
                 api_timeout_ms=str(v.get("api_timeout_ms", "") or "3000000"),
+                has_completed_onboarding=str(v.get("has_completed_onboarding", "") or "true"),
                 proxy=ProxyConfig(
                     http=ProxyItem(**(proxy_data.get("http") or {})),
                     https=ProxyItem(**(proxy_data.get("https") or {})),
@@ -218,6 +226,7 @@ class ConfigManager:
             enable_tool_search=str(data.get("enable_tool_search", "") or "false"),
             disable_nonessential_traffic=str(data.get("disable_nonessential_traffic", "") or "1"),
             api_timeout_ms=str(data.get("api_timeout_ms", "") or "3000000"),
+            has_completed_onboarding=str(data.get("has_completed_onboarding", "") or "true"),
             project_path=str(data.get("project_path", "") or ""),
             # 顶层 proxy 始终初始化为空——后续由 _sync_active_provider 从
             # provider_settings[provider] 中深拷贝加载当前 provider 的真实代理配置
@@ -242,6 +251,7 @@ class ConfigManager:
                 "enable_tool_search": ps.enable_tool_search,
                 "disable_nonessential_traffic": ps.disable_nonessential_traffic,
                 "api_timeout_ms": ps.api_timeout_ms,
+                "has_completed_onboarding": ps.has_completed_onboarding,
                 "proxy": {
                     "http": {"enabled": ps.proxy.http.enabled, "host": ps.proxy.http.host, "port": ps.proxy.http.port, "auth": ps.proxy.http.auth},
                     "https": {"enabled": ps.proxy.https.enabled, "host": ps.proxy.https.host, "port": ps.proxy.https.port, "auth": ps.proxy.https.auth},

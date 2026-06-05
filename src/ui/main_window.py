@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
         pg.enable_tool_search.currentTextChanged.connect(self._schedule_autosave)
         pg.disable_nonessential_traffic.currentTextChanged.connect(self._schedule_autosave)
         pg.api_timeout_ms.textChanged.connect(self._schedule_autosave)
+        pg.has_completed_onboarding.currentTextChanged.connect(self._schedule_autosave)
 
         for row in (self.proxy_group.http, self.proxy_group.https, self.proxy_group.socks5):
             row.enabled.toggled.connect(self._schedule_autosave)
@@ -387,6 +388,7 @@ class MainWindow(QMainWindow):
         self.config.enable_tool_search = data["enable_tool_search"]
         self.config.disable_nonessential_traffic = data["disable_nonessential_traffic"]
         self.config.api_timeout_ms = data["api_timeout_ms"]
+        self.config.has_completed_onboarding = data["has_completed_onboarding"]
 
         self.config.proxy.http = ProxyItem(**proxy["http"])
         self.config.proxy.https = ProxyItem(**proxy["https"])

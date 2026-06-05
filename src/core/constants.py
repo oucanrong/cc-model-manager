@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_NAME = "Claude-Code模型管理器v1.8"
+APP_NAME = "Claude-Code模型管理器v1.9"
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.json"
@@ -30,6 +30,8 @@ PROVIDER_KIMI = "Kimi"
 PROVIDER_ZHIPU = "智谱GML"
 PROVIDER_QWEN = "阿里千问"
 PROVIDER_MINIMAX = "MINIMAX"
+PROVIDER_XIAOMI_MIMO = "小米MiMo"
+PROVIDER_ARK_CODING = "方舟Coding Plan"
 PROVIDER_CLAUDE_RELAY = "Claude中转"
 
 PROVIDER_OPTIONS = [
@@ -39,6 +41,8 @@ PROVIDER_OPTIONS = [
     PROVIDER_ZHIPU,
     PROVIDER_QWEN,
     PROVIDER_MINIMAX,
+    PROVIDER_XIAOMI_MIMO,
+    PROVIDER_ARK_CODING,
     PROVIDER_CLAUDE_RELAY,
 ]
 
@@ -73,6 +77,11 @@ class ProviderPreset:
     api_timeout_ms_default: str = "3000000"
     # 是否隐藏 CLAUDE_CODE_EFFORT_LEVEL（Kimi / GML5 / 阿里千问 / MINIMAX 不再显示该参数）
     hide_effort_level: bool = False
+    # 小米MiMo / 方舟Coding Plan 专用：是否显示 hasCompletedOnboarding 参数
+    show_has_completed_onboarding: bool = False
+    # 小米MiMo / 方舟Coding Plan 专用：hasCompletedOnboarding 下拉框选项
+    has_completed_onboarding_options: tuple[str, ...] = ("true",)
+    has_completed_onboarding_default: str = "true"
 
 
 PROVIDER_PRESETS: dict[str, ProviderPreset] = {
@@ -176,6 +185,51 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         show_api_timeout_ms=True,
         api_timeout_ms_default="3000000",
         hide_effort_level=True,
+    ),
+    PROVIDER_XIAOMI_MIMO: ProviderPreset(
+        base_url="https://api.xiaomimimo.com/anthropic",
+        model_options=("mimo-v2.5", "mimo-v2.5-pro"),
+        anthropic_model_default="mimo-v2.5-pro",
+        default_opus_model_default="mimo-v2.5-pro",
+        default_sonnet_model_default="mimo-v2.5-pro",
+        default_haiku_model_default="mimo-v2.5",
+        subagent_model_default="mimo-v2.5-pro",
+        effort_level_options=("max",),
+        effort_level_default="max",
+        parameters_enabled=True,
+        base_url_editable=True,
+        show_base_url_in_main=False,
+        hide_effort_level=True,
+        show_has_completed_onboarding=True,
+        has_completed_onboarding_options=("true",),
+        has_completed_onboarding_default="true",
+    ),
+    PROVIDER_ARK_CODING: ProviderPreset(
+        base_url="https://ark.cn-beijing.volces.com/api/coding",
+        model_options=(
+            "doubao-seed-2.0-code",
+            "doubao-seed-2.0-pro",
+            "doubao-seed-2.0-lite",
+            "minimax-latest",
+            "glm-5.1",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "kimi-k2.6",
+        ),
+        anthropic_model_default="doubao-seed-2.0-code",
+        default_opus_model_default="doubao-seed-2.0-code",
+        default_sonnet_model_default="doubao-seed-2.0-code",
+        default_haiku_model_default="doubao-seed-2.0-code",
+        subagent_model_default="doubao-seed-2.0-code",
+        effort_level_options=("max",),
+        effort_level_default="max",
+        parameters_enabled=True,
+        base_url_editable=True,
+        show_base_url_in_main=False,
+        hide_effort_level=True,
+        show_has_completed_onboarding=True,
+        has_completed_onboarding_options=("true",),
+        has_completed_onboarding_default="true",
     ),
     PROVIDER_CLAUDE_RELAY: ProviderPreset(
         base_url="",

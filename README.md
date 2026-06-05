@@ -4,7 +4,7 @@
 
 ## ✨ 核心特性
 
-- **🚀 跨服务商快速适配**：预设 Claude 官方、DeepSeek、Kimi、智谱 GLM、阿里千问、MINIMAX、第三方中转API服务的Anthropic 兼容端预设，一键注入对应的 API Key / Token。
+- **🚀 跨服务商快速适配**：预设 Claude 官方、DeepSeek、Kimi、智谱 GLM、阿里千问、MINIMAX、小米MiMo、方舟Coding Plan、第三方中转API服务的Anthropic 兼容端预设，一键注入对应的 API Key / Token。
 - **🌐 全功能网络代理支持**：完美集成 **HTTP、HTTPS、SOCKS5** 三种代理协议，国内网络环境无缝使用。
 - **📂 智能工作区与多项目管理**：支持可视化选择工作目录，自动维护历史项目记录，一键切换。
 - **🛠 独立控制台拉起**：采用多进程与多线程管理，在独立的安全控制台中拉起 Claude 交互界面，绝不卡死主 GUI。

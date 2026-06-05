@@ -27,6 +27,7 @@ _CLAUDE_DEFAULT_CLEANUP_KEYS = [
     "ENABLE_TOOL_SEARCH",
     "API_TIMEOUT_MS",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "HAS_COMPLETED_ONBOARDING",
 ]
 
 
@@ -104,17 +105,23 @@ def build_env(config: AppConfig) -> dict[str, str]:
                 if val:
                     env["ENABLE_TOOL_SEARCH"] = val
 
-            # GML5 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+            # GML5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
             if preset.show_disable_nonessential_traffic:
                 val = config.disable_nonessential_traffic.strip() or preset.disable_nonessential_traffic_default
                 if val:
                     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = val
 
-            # GML5 专用：API_TIMEOUT_MS
+            # GML5 / MINIMAX 专用：API_TIMEOUT_MS
             if preset.show_api_timeout_ms:
                 val = config.api_timeout_ms.strip() or preset.api_timeout_ms_default
                 if val:
                     env["API_TIMEOUT_MS"] = val
+
+            # 小米MiMo / 方舟Coding Plan 专用：HAS_COMPLETED_ONBOARDING
+            if preset.show_has_completed_onboarding:
+                val = config.has_completed_onboarding.strip() or preset.has_completed_onboarding_default
+                if val:
+                    env["HAS_COMPLETED_ONBOARDING"] = val
 
     env["PYTHONUTF8"] = "1"
     env.update(build_proxy_env(config.proxy))

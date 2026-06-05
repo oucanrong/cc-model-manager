@@ -1,9 +1,10 @@
 # 路径: C:\Users\oucan\Documents\vscode\claude_code启动器\src\ui\widgets\parameter_group.py
 # 作用: 启动参数区域控件
-#   - DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX：base_url 不在主界面显示（在鉴权弹窗编辑），
+#   - DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX / 小米MiMo / 方舟Coding Plan：base_url 不在主界面显示（在鉴权弹窗编辑），
 #     模型下拉框可用。
 #   - Kimi：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 ENABLE_TOOL_SEARCH（下拉框，只有 false）。
 #   - 智谱GML / MINIMAX：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（下拉框，只有 1）和 API_TIMEOUT_MS（文本输入框）。
+#   - 小米MiMo / 方舟Coding Plan：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 hasCompletedOnboarding（下拉框，只有 true）。
 #   - 阿里千问：不显示 CLAUDE_CODE_EFFORT_LEVEL。
 #   - Claude中转：base_url 同样不在主界面显示（从 config 静默读取），
 #     模型 & effort 使用下拉框（预设选项列表），与固定 provider 保持一致。
@@ -153,6 +154,11 @@ class ParameterGroup(QGroupBox):
         self.api_timeout_ms.setMinimumHeight(26)
         self.api_timeout_ms.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+        # 小米MiMo / 方舟Coding Plan 专用：hasCompletedOnboarding 下拉框（只有 true 一个选项）
+        self.has_completed_onboarding = QComboBox()
+        self.has_completed_onboarding.setMinimumHeight(26)
+        self.has_completed_onboarding.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         self.project_path_edit = QLineEdit()
         self.project_path_edit.setMinimumHeight(26)
         self.project_path_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -227,9 +233,14 @@ class ParameterGroup(QGroupBox):
         self._layout.addWidget(self._label_disable_nonessential_traffic, 9, 0)
         self._layout.addWidget(self.disable_nonessential_traffic, 9, 1)
 
-        # 行 10：工作目录
-        self._layout.addWidget(self.pick_btn, 10, 0)
-        self._layout.addWidget(self.project_path_edit, 10, 1)
+        # 行 10：hasCompletedOnboarding（小米MiMo / 方舟Coding Plan 专用）
+        self._label_has_completed_onboarding = self._make_label("hasCompletedOnboarding")
+        self._layout.addWidget(self._label_has_completed_onboarding, 10, 0)
+        self._layout.addWidget(self.has_completed_onboarding, 10, 1)
+
+        # 行 11：工作目录
+        self._layout.addWidget(self.pick_btn, 11, 0)
+        self._layout.addWidget(self.project_path_edit, 11, 1)
 
         self.setLayout(self._layout)
 
@@ -264,6 +275,7 @@ class ParameterGroup(QGroupBox):
         self.enable_tool_search.setEnabled(enabled)
         self.disable_nonessential_traffic.setEnabled(enabled)
         self.api_timeout_ms.setEnabled(enabled)
+        self.has_completed_onboarding.setEnabled(enabled)
         self.pick_btn.setEnabled(enabled)
         self.project_path_edit.setEnabled(enabled)
 
@@ -290,6 +302,7 @@ class ParameterGroup(QGroupBox):
             self._label_enable_tool_search, self.enable_tool_search,
             self._label_disable_nonessential_traffic, self.disable_nonessential_traffic,
             self._label_api_timeout_ms, self.api_timeout_ms,
+            self._label_has_completed_onboarding, self.has_completed_onboarding,
         ):
             w.setVisible(False)
 
@@ -305,6 +318,7 @@ class ParameterGroup(QGroupBox):
             self._label_enable_tool_search, self.enable_tool_search,
             self._label_disable_nonessential_traffic, self.disable_nonessential_traffic,
             self._label_api_timeout_ms, self.api_timeout_ms,
+            self._label_has_completed_onboarding, self.has_completed_onboarding,
         ):
             w.setVisible(True)
 
@@ -372,6 +386,15 @@ class ParameterGroup(QGroupBox):
             self._label_disable_nonessential_traffic.setVisible(False)
             self.disable_nonessential_traffic.setVisible(False)
 
+        # 根据预设隐藏/显示 hasCompletedOnboarding（小米MiMo / 方舟Coding Plan 专用，下拉框）
+        if preset.show_has_completed_onboarding:
+            self._label_has_completed_onboarding.setVisible(True)
+            self.has_completed_onboarding.setVisible(True)
+            self._set_combo_items(self.has_completed_onboarding, preset.has_completed_onboarding_options, preset.has_completed_onboarding_default)
+        else:
+            self._label_has_completed_onboarding.setVisible(False)
+            self.has_completed_onboarding.setVisible(False)
+
     def apply_config(self, config: AppConfig) -> None:
         provider = config.provider if config.provider in PROVIDER_OPTIONS else DEFAULT_PROVIDER
 
@@ -432,6 +455,14 @@ class ParameterGroup(QGroupBox):
             elif self.disable_nonessential_traffic.count() > 0:
                 self.disable_nonessential_traffic.setCurrentIndex(0)
 
+        # 小米MiMo / 方舟Coding Plan 专用参数恢复
+        if preset.show_has_completed_onboarding:
+            val = config.has_completed_onboarding.strip() or preset.has_completed_onboarding_default
+            if self.has_completed_onboarding.findText(val) >= 0:
+                self.has_completed_onboarding.setCurrentText(val)
+            elif self.has_completed_onboarding.count() > 0:
+                self.has_completed_onboarding.setCurrentIndex(0)
+
         self.project_path_edit.setText(config.project_path)
 
     def collect_config_data(self) -> dict:
@@ -451,6 +482,7 @@ class ParameterGroup(QGroupBox):
             "enable_tool_search": self.enable_tool_search.currentText() if preset.show_enable_tool_search else "",
             "disable_nonessential_traffic": self.disable_nonessential_traffic.currentText() if preset.show_disable_nonessential_traffic else "",
             "api_timeout_ms": self.api_timeout_ms.text().strip() if preset.show_api_timeout_ms else "",
+            "has_completed_onboarding": self.has_completed_onboarding.currentText() if preset.show_has_completed_onboarding else "",
         }
 
     def set_project_path(self, path: str) -> None:

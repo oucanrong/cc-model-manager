@@ -1,6 +1,6 @@
 # 路径: C:\Users\oucan\Documents\vscode\claude_code启动器\src\ui\widgets\auth_settings_dialog.py
 # 作用: 鉴权设置弹窗
-#   - DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX：base_url 可编辑，保留预设默认值；API Key 可填。
+#   - DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX / 小米MiMo / 方舟Coding Plan：base_url 可编辑，保留预设默认值；API Key 可填。
 #     增加 申请API 按钮。
 #   - Claude中转：base_url 可编辑（用户自填中转地址）；API Key 可填。
 #   - Claude官方接口：不在此弹窗中出现。
@@ -32,6 +32,8 @@ from src.core.constants import (
     PROVIDER_KIMI,
     PROVIDER_MINIMAX,
     PROVIDER_QWEN,
+    PROVIDER_XIAOMI_MIMO,
+    PROVIDER_ARK_CODING,
     PROVIDER_ZHIPU,
     get_provider_preset,
 )
@@ -44,6 +46,8 @@ _API_APPLY_URLS: dict[str, str] = {
     PROVIDER_ZHIPU: "https://bigmodel.cn/apikey/platform",
     PROVIDER_QWEN: "https://help.aliyun.com/zh/model-studio/get-api-key",
     PROVIDER_MINIMAX: "https://platform.minimaxi.com/console/access",
+    PROVIDER_XIAOMI_MIMO: "https://platform.xiaomimimo.com/docs/zh-CN/integration/claudecode",
+    PROVIDER_ARK_CODING: "https://www.volcengine.com/docs/82379/1928262?lang=zh",
 }
 
 
@@ -55,9 +59,9 @@ class AuthSettingsDialog(QDialog):
     其中包含每个 provider 的 base_url 与 token。
 
     所有标签页均包含：
-      - Base URL 输入框（可编辑；DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX 预填固定默认值，中转留空由用户填写）
+      - Base URL 输入框（可编辑；DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX/小米MiMo/方舟Coding Plan 预填固定默认值，中转留空由用户填写）
       - API Key  输入框（密文）
-      - 申请API按钮（仅 DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX，用默认浏览器打开申请地址）
+      - 申请API按钮（仅 DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX/小米MiMo/方舟Coding Plan，用默认浏览器打开申请地址）
     base_url 与 API Key 均可任意留空，互不绑定。
     """
 
@@ -69,7 +73,7 @@ class AuthSettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("鉴权设置")
         self.setModal(True)
-        self.resize(760, 460)
+        self.resize(760, 600)
         self.setMinimumSize(700, 400)
 
         font = QFont("Microsoft YaHei")
@@ -116,6 +120,8 @@ class AuthSettingsDialog(QDialog):
             ("智谱GML",     PROVIDER_ZHIPU),
             ("阿里千问",    PROVIDER_QWEN),
             ("MINIMAX",     PROVIDER_MINIMAX),
+            ("小米MiMo",    PROVIDER_XIAOMI_MIMO),
+            ("方舟Coding Plan", PROVIDER_ARK_CODING),
             ("Claude中转",  PROVIDER_CLAUDE_RELAY),
         ]
 
@@ -157,7 +163,7 @@ class AuthSettingsDialog(QDialog):
         每个标签页均包含：
           - Base URL（可编辑输入框；固定 provider 预填默认值，中转留空）
           - API Key （密文输入框）
-          - 申请API按钮（仅 DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX）
+          - 申请API按钮（仅 DeepSeek/Kimi/智谱GML/阿里千问/MINIMAX/小米MiMo/方舟Coding Plan）
         """
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -199,7 +205,7 @@ class AuthSettingsDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        # 申请API按钮（仅 DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX）
+        # 申请API按钮（仅 DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX / 小米MiMo / 方舟Coding Plan）
         if provider_key in _API_APPLY_URLS:
             apply_btn = QPushButton("申请API")
             apply_btn.setObjectName("authApplyButton")
