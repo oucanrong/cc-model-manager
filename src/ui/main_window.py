@@ -351,6 +351,13 @@ class MainWindow(QMainWindow):
         # 将当前 UI 数据读取到 config 顶层字段
         self._sync_config_from_ui()
 
+        # BUGFIX: _sync_config_from_ui() 内部先将 config.provider 设为新 provider，
+        # 然后从 auth_tokens[新provider] 读取 token 赋值给 config.token。
+        # 必须在此处恢复为旧 provider 的 token，否则 _flush_active_provider
+        # 会把新 provider 的 token（或空值）写入旧 provider 的配置中，
+        # 导致旧 provider 的 API Key 被清空或串号。
+        self.config.token = self.config.auth_tokens.get(old_provider, "").strip()
+
         # 恢复旧 provider，确保 _flush_active_provider 写入正确的条目
         self.config.provider = old_provider
         self.config_manager._flush_active_provider(self.config)
