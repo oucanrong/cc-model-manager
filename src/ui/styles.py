@@ -65,7 +65,34 @@ QStatusBar {
     border-top: 1px solid #d9d9d9;
 }
 
-/* ── 启动按钮 · 深绿色（与鉴权弹窗"申请API"一致） ── */
+QTabWidget#mainProductTabs::pane {
+    border: 1px solid #d9d9d9;
+    border-radius: 7px;
+    background-color: #ffffff;
+}
+QTabWidget#mainProductTabs QTabBar::tab {
+    min-width: 92px;
+    min-height: 24px;
+    padding: 5px 12px;
+    margin-right: 3px;
+    color: #273142;
+    background-color: #e9eef3;
+    border: 1px solid #d2d8df;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    font-weight: 600;
+}
+QTabWidget#mainProductTabs QTabBar::tab:hover:!selected {
+    background-color: #dff3e4;
+    color: #1f6f32;
+}
+QTabWidget#mainProductTabs QTabBar::tab:selected {
+    color: #ffffff;
+    background-color: #2ea043;
+    border-color: #238636;
+}
+
+/* ── 启动按钮 · 深绿色 ── */
 QPushButton#startButton {
     background-color: #2ea043;
 }
@@ -129,6 +156,13 @@ QPushButton#upgradeCCButton:hover {
 }
 QPushButton#upgradeCCButton:pressed {
     background-color: #096058;
+}
+
+QPushButton#upgradeCodexButton {
+    background-color: #0d9488;
+}
+QPushButton#upgradeCodexButton:hover {
+    background-color: #0b7a70;
 }
 
 /* ── 退出按钮 · 深灰色 ── */

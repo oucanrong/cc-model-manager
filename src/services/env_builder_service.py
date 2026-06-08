@@ -11,10 +11,10 @@ from src.core.constants import (
     PROVIDER_CLAUDE_RELAY,
     get_provider_preset,
 )
-from .proxy_service import build_proxy_env
+from .proxy_service import apply_proxy_env
 
 # Claude官方接口需要清理的环境变量前缀（除代理和 PYTHONUTF8 外的所有注入变量）
-_CLAUDE_DEFAULT_CLEANUP_KEYS = [
+CLAUDE_MANAGED_ENV_KEYS = {
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
@@ -28,7 +28,7 @@ _CLAUDE_DEFAULT_CLEANUP_KEYS = [
     "API_TIMEOUT_MS",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
     "HAS_COMPLETED_ONBOARDING",
-]
+}
 
 
 def build_env(config: AppConfig) -> dict[str, str]:
@@ -40,19 +40,18 @@ def build_env(config: AppConfig) -> dict[str, str]:
     if config.provider == PROVIDER_CLAUDE_DEFAULT:
         # Claude官方接口：不注入任何鉴权/API环境变量，
         # 主动清理可能从 os.environ 残留的变量，相当于在终端上直接执行 claude 命令。
-        for key in _CLAUDE_DEFAULT_CLEANUP_KEYS:
+        for key in CLAUDE_MANAGED_ENV_KEYS:
             env.pop(key, None)
 
     else:
-        # 所有第三方 Provider（DeepSeek / Kimi / 智谱GML / 千问 / Claude中转）：
-        # 注入 token，并清除 ANTHROPIC_API_KEY。
+        # 所有第三方 Provider（DeepSeek / Kimi / 智谱GLM / 千问 / Claude中转）：
+        # 先清理可能从父进程继承的其他 Provider 参数，再按当前 Provider 重建。
         # 原因：Claude Code 会优先读取 ANTHROPIC_API_KEY；若该变量存在但为空，
         # 即使 ANTHROPIC_AUTH_TOKEN 已正确设置，Claude Code 也会报"未登录"。
-        env.pop("ANTHROPIC_API_KEY", None)
+        for key in CLAUDE_MANAGED_ENV_KEYS:
+            env.pop(key, None)
         if token:
             env["ANTHROPIC_AUTH_TOKEN"] = token
-        else:
-            env.pop("ANTHROPIC_AUTH_TOKEN", None)
 
         if preset.parameters_enabled:
             # base_url：优先使用 config 中保存的值（含用户在鉴权弹窗中编辑的中转地址），
@@ -90,9 +89,9 @@ def build_env(config: AppConfig) -> dict[str, str]:
             if subagent:
                 env["CLAUDE_CODE_SUBAGENT_MODEL"] = subagent
 
-            # CLAUDE_CODE_EFFORT_LEVEL：仅对非 Kimi、非 GML5、非千问 的 provider 注入
+            # CLAUDE_CODE_EFFORT_LEVEL：仅对非 Kimi、非 GLM5、非千问 的 provider 注入
             if preset.hide_effort_level:
-                # Kimi / GML5 / 千问 不使用此参数，确保环境变量中不存在
+                # Kimi / GLM5 / 千问 不使用此参数，确保环境变量中不存在
                 env.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
             else:
                 effort = config.effort_level.strip() or (preset.effort_level_default if not is_relay else "")
@@ -105,13 +104,13 @@ def build_env(config: AppConfig) -> dict[str, str]:
                 if val:
                     env["ENABLE_TOOL_SEARCH"] = val
 
-            # GML5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+            # GLM5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
             if preset.show_disable_nonessential_traffic:
                 val = config.disable_nonessential_traffic.strip() or preset.disable_nonessential_traffic_default
                 if val:
                     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = val
 
-            # GML5 / MINIMAX 专用：API_TIMEOUT_MS
+            # GLM5 / MINIMAX 专用：API_TIMEOUT_MS
             if preset.show_api_timeout_ms:
                 val = config.api_timeout_ms.strip() or preset.api_timeout_ms_default
                 if val:
@@ -124,5 +123,5 @@ def build_env(config: AppConfig) -> dict[str, str]:
                     env["HAS_COMPLETED_ONBOARDING"] = val
 
     env["PYTHONUTF8"] = "1"
-    env.update(build_proxy_env(config.proxy))
+    apply_proxy_env(env, config.proxy)
     return env

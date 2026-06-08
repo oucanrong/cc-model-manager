@@ -4,9 +4,16 @@
 from __future__ import annotations
 
 import webbrowser
+from pathlib import Path
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QCloseEvent, QFont
+from PyQt6.QtCore import QTimer, QUrl
+from PyQt6.QtGui import (
+    QCloseEvent,
+    QDesktopServices,
+    QFont,
+    QResizeEvent,
+    QShowEvent,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -19,20 +26,42 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from src.core.config_manager import AppConfig, ConfigManager, ProxyConfig, ProxyItem, ProviderSettings
-from src.core.constants import APP_NAME, PROVIDER_CLAUDE_DEFAULT, PROVIDER_CLAUDE_RELAY
+from src.core.config_manager import (
+    AppConfig,
+    CodexProviderSettings,
+    ConfigManager,
+    ProxyConfig,
+    ProxyItem,
+    ProviderSettings,
+)
+from src.core.constants import (
+    APP_NAME,
+    CODEX_PROVIDER_DEFAULTS,
+    CODEX_PROVIDER_OFFICIAL,
+    PROVIDER_CLAUDE_DEFAULT,
+    PROVIDER_CLAUDE_RELAY,
+)
 from src.core.logger import setup_logger
 from src.core.process_manager import ProcessManager
 from src.ui.styles import APP_QSS
 from src.ui.widgets.auth_settings_dialog import AuthSettingsDialog
+from src.ui.widgets.codex_parameter_group import CodexParameterGroup
 from src.ui.widgets.log_console import LogConsole
 from src.ui.widgets.parameter_group import ParameterGroup
 from src.ui.widgets.proxy_group import ProxyGroup
 from src.workers.claude_worker import ClaudeWorker
+from src.workers.codex_worker import CodexWorker
+from src.services.codex_config_service import CodexConfigService
+from src.services.codex_service import CODEX_STORE_SEARCH_URI, CodexService
+from src.services.claude_service import ClaudeService
+from src.services.claude_settings_service import ClaudeSettingsService
+from src.services.proxy_service import codex_has_only_socks5
+from src.services.vscode_service import VSCODE_DOWNLOAD_URL, VSCodeService
 
 # 中转 Provider 集合（需要 base_url 非空校验）
 _RELAY_PROVIDERS = {PROVIDER_CLAUDE_RELAY}
@@ -80,7 +109,7 @@ def _ask_force_quit(parent: QWidget) -> bool:
     layout.setContentsMargins(24, 20, 24, 16)
     layout.setSpacing(16)
 
-    msg = QLabel("Claude Code 仍在运行，是否强制停止并退出？")
+    msg = QLabel("Claude Code 或 Codex 仍在运行，是否强制停止并退出？")
     msg.setWordWrap(True)
     msg.setStyleSheet("color: #222222; font-size: 12pt;")
     layout.addWidget(msg)
@@ -174,11 +203,45 @@ def _show_confirm_dialog(parent: QWidget, title: str, message: str) -> bool:
     return dialog.exec() == QDialog.DialogCode.Accepted
 
 
+class _TopAlignedTabWidget(QTabWidget):
+    _CORNER_RIGHT_MARGIN = 12
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._header_widget: QWidget | None = None
+
+    def set_header_widget(self, widget: QWidget) -> None:
+        self._header_widget = widget
+        widget.setParent(self)
+        widget.show()
+        widget.raise_()
+        self._align_header_widget()
+
+    def _align_header_widget(self) -> None:
+        if self._header_widget is not None:
+            self._header_widget.move(
+                self.width()
+                - self._header_widget.width()
+                - self._CORNER_RIGHT_MARGIN,
+                self.tabBar().y(),
+            )
+            self._header_widget.raise_()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._align_header_widget()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._align_header_widget()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1200, 840)
+        self.resize(760, 900)
+        self.setMinimumSize(760, 600)
 
         self._apply_fonts()
 
@@ -186,8 +249,18 @@ class MainWindow(QMainWindow):
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
         self.process_manager = ProcessManager()
+        self.codex_process_manager = ProcessManager()
+        self.claude_service = ClaudeService()
+        self.codex_service = CodexService()
+        self.vscode_service = VSCodeService()
         self.worker: ClaudeWorker | None = None
+        self.codex_worker: CodexWorker | None = None
         self._loading = False
+
+        if CodexConfigService().recover_if_needed():
+            self.logger.warning("检测到上次异常退出，已恢复 Codex config.toml。")
+        if ClaudeSettingsService().recover_if_needed():
+            self.logger.warning("检测到上次异常退出，已恢复 Claude settings.json。")
 
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setSingleShot(True)
@@ -197,19 +270,37 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._bind_config()
         self._wire_autosave()
+        self._detect_external_codex_on_startup()
+
+    def _detect_external_codex_on_startup(self) -> None:
+        if self.codex_service.is_any_desktop_running():
+            message = "检测到 Codex 桌面端已在运行，请关闭后再使用启动功能。"
+            self.codex_status_label.setText(message)
+            self.codex_log_console.append_entry("SYSTEM", message)
 
     def _build_ui(self) -> None:
         central = QWidget()
         root = QVBoxLayout(central)
 
-        header_row = QHBoxLayout()
-        header_row.addStretch(1)
+        self.product_tabs = _TopAlignedTabWidget()
+        self.product_tabs.setObjectName("mainProductTabs")
+        self.product_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self.product_tabs.tabBar().setExpanding(False)
+        self.product_tabs.tabBar().setFixedHeight(36)
+
         self.auth_btn = QPushButton("鉴权设置")
         self.auth_btn.setObjectName("authSettingsButton")
         self.auth_btn.setMinimumWidth(120)
+        self.auth_btn.setFixedHeight(36)
         self.auth_btn.clicked.connect(self.open_auth_settings)
-        header_row.addWidget(self.auth_btn)
-        root.addLayout(header_row)
+        self.product_tabs.set_header_widget(self.auth_btn)
+
+        claude_page = QWidget()
+        claude_root = QVBoxLayout(claude_page)
+        claude_root.setContentsMargins(12, 12, 12, 12)
+        codex_page = QWidget()
+        codex_root = QVBoxLayout(codex_page)
+        codex_root.setContentsMargins(12, 12, 12, 12)
 
         self.parameter_group = ParameterGroup(on_pick_project=self.pick_project)
         self.proxy_group = ProxyGroup()
@@ -242,17 +333,14 @@ class MainWindow(QMainWindow):
         self.clear_btn.setObjectName("clearButton")
         self.reset_btn = QPushButton("重置")
         self.reset_btn.setObjectName("resetButton")
-        self.upgrade_btn = QPushButton("升级Claude Code")
-        self.upgrade_btn.setObjectName("upgradeCCButton")
         self.exit_btn = QPushButton("退出")
         self.exit_btn.setObjectName("exitButton")
 
-        self.start_btn.clicked.connect(self.start_claude)
+        self.start_btn.clicked.connect(self.start_selected_claude_target)
         self.stop_btn.clicked.connect(self.stop_claude)
         self.copy_btn.clicked.connect(self.copy_logs_to_clipboard)
         self.clear_btn.clicked.connect(self.log_console.clear_logs)
         self.reset_btn.clicked.connect(self.reset_form)
-        self.upgrade_btn.clicked.connect(self.upgrade_claude)
         self.exit_btn.clicked.connect(self.close)
 
         self.stop_btn.setEnabled(False)
@@ -264,24 +352,92 @@ class MainWindow(QMainWindow):
             self.copy_btn,
             self.clear_btn,
             self.reset_btn,
-            self.upgrade_btn,
             self.exit_btn,
         ):
-            btn.setMinimumWidth(120)
+            btn.setMinimumWidth(112)
             button_row.addWidget(btn)
 
-        root.addWidget(self.parameter_group)
-        root.addWidget(self.proxy_group)
-        root.addWidget(QLabel("日志输出"))
-        root.addWidget(self.log_console, 1)
+        claude_root.addWidget(self.parameter_group)
+        claude_root.addWidget(self.proxy_group)
+        claude_root.addWidget(QLabel("日志输出"))
+        claude_root.addWidget(self.log_console, 1)
         # 进度条区域
-        root.addWidget(self.install_progress_bar)
-        root.addWidget(self.install_progress_label)
-        root.addWidget(self.status_label)
-        root.addLayout(button_row)
+        claude_root.addWidget(self.install_progress_bar)
+        claude_root.addWidget(self.install_progress_label)
+        claude_root.addWidget(self.status_label)
+        claude_root.addLayout(button_row)
+        claude_root.setStretchFactor(self.log_console, 1)
+
+        self.codex_parameter_group = CodexParameterGroup(self.pick_codex_project)
+        self.codex_proxy_group = ProxyGroup()
+        self.codex_log_console = LogConsole()
+        self.codex_status_label = QLabel("就绪")
+        self.codex_start_btn = QPushButton("启动")
+        self.codex_start_btn.setObjectName("startButton")
+        self.codex_stop_btn = QPushButton("停止")
+        self.codex_stop_btn.setObjectName("stopButton")
+        self.codex_copy_btn = QPushButton("复制日志")
+        self.codex_copy_btn.setObjectName("copyButton")
+        self.codex_clear_btn = QPushButton("清空日志")
+        self.codex_clear_btn.setObjectName("clearButton")
+        self.codex_reset_btn = QPushButton("重置")
+        self.codex_reset_btn.setObjectName("resetButton")
+        self.codex_exit_btn = QPushButton("退出")
+        self.codex_exit_btn.setObjectName("exitButton")
+        self.codex_stop_btn.setEnabled(False)
+        self.codex_start_btn.clicked.connect(self.start_selected_codex_target)
+        self.codex_stop_btn.clicked.connect(self.stop_codex)
+        self.codex_copy_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(self.codex_log_console.toPlainText())
+        )
+        self.codex_clear_btn.clicked.connect(self.codex_log_console.clear_logs)
+        self.codex_reset_btn.clicked.connect(self.reset_codex_form)
+        self.codex_exit_btn.clicked.connect(self.close)
+        codex_buttons = QHBoxLayout()
+        for button in (
+            self.codex_start_btn,
+            self.codex_stop_btn,
+            self.codex_copy_btn,
+            self.codex_clear_btn,
+            self.codex_reset_btn,
+            self.codex_exit_btn,
+        ):
+            button.setMinimumWidth(105)
+            codex_buttons.addWidget(button)
+        codex_root.addWidget(self.codex_parameter_group)
+        codex_root.addWidget(self.codex_proxy_group)
+        codex_root.addWidget(QLabel("日志输出"))
+        codex_root.addWidget(self.codex_log_console, 1)
+        codex_root.addWidget(self.codex_status_label)
+        codex_root.addLayout(codex_buttons)
+        codex_root.setStretchFactor(self.codex_log_console, 1)
+
+        self.product_tabs.addTab(claude_page, "Claude Code")
+        self.product_tabs.addTab(codex_page, "Codex")
+        root.addWidget(self.product_tabs, 1)
 
         self.setCentralWidget(central)
         self.setStyleSheet(APP_QSS)
+        self._sync_parameter_group_layouts()
+
+    def _sync_parameter_group_layouts(self) -> None:
+        groups = (self.parameter_group, self.codex_parameter_group)
+        layouts = (self.parameter_group._layout, self.codex_parameter_group._layout)
+        label_width = max(
+            label.sizeHint().width()
+            for group in groups
+            for label in group.findChildren(QLabel)
+        )
+        for layout in layouts:
+            layout.setColumnMinimumWidth(0, label_width)
+
+        for group in groups:
+            group.setMinimumHeight(0)
+            group.setMaximumHeight(16777215)
+            group.layout().activate()
+        target_height = max(group.sizeHint().height() for group in groups)
+        for group in groups:
+            group.setFixedHeight(target_height)
 
     def _apply_fonts(self) -> None:
         app = QApplication.instance()
@@ -295,10 +451,16 @@ class MainWindow(QMainWindow):
         try:
             self.parameter_group.apply_config(self.config)
             self.proxy_group.apply_config(self.config)
+            self.codex_parameter_group.apply_config(self.config.codex)
+            codex_setting = self.config.codex.provider_settings[self.config.codex.provider]
+            codex_proxy_config = AppConfig(proxy=codex_setting.proxy)
+            self.codex_proxy_group.apply_config(codex_proxy_config)
             self.config.token = self.config.auth_tokens.get(self.config.provider, "").strip()
         finally:
             self._loading = False
+        self._sync_parameter_group_layouts()
         self._refresh_status()
+        self._sync_claude_start_button_state()
 
     def _wire_autosave(self) -> None:
         pg = self.parameter_group
@@ -310,8 +472,11 @@ class MainWindow(QMainWindow):
         pg.model_haiku.currentTextChanged.connect(self._schedule_autosave)
         pg.model_subagent.currentTextChanged.connect(self._schedule_autosave)
         pg.effort_level.currentTextChanged.connect(self._schedule_autosave)
+        pg.launch_target_combo.currentIndexChanged.connect(
+            self._handle_claude_launch_target_change
+        )
         pg.project_path_edit.textChanged.connect(self._schedule_autosave)
-        # Kimi / GML5 专用参数
+        # Kimi / GLM5 专用参数
         pg.enable_tool_search.currentTextChanged.connect(self._schedule_autosave)
         pg.disable_nonessential_traffic.currentTextChanged.connect(self._schedule_autosave)
         pg.api_timeout_ms.textChanged.connect(self._schedule_autosave)
@@ -324,15 +489,87 @@ class MainWindow(QMainWindow):
             row.username.textChanged.connect(self._schedule_autosave)
             row.password.textChanged.connect(self._schedule_autosave)
 
+        cpg = self.codex_parameter_group
+        cpg.provider_combo.currentTextChanged.connect(self._handle_codex_provider_change)
+        cpg.model_combo.currentTextChanged.connect(self._schedule_autosave)
+        cpg.reasoning_combo.currentTextChanged.connect(self._schedule_autosave)
+        cpg.launch_target_combo.currentIndexChanged.connect(
+            self._handle_codex_launch_target_change
+        )
+        cpg.project_path_edit.textChanged.connect(self._schedule_autosave)
+        for row in (
+            self.codex_proxy_group.http,
+            self.codex_proxy_group.https,
+            self.codex_proxy_group.socks5,
+        ):
+            row.enabled.toggled.connect(self._schedule_autosave)
+            row.host.textChanged.connect(self._schedule_autosave)
+            row.port.textChanged.connect(self._schedule_autosave)
+            row.username.textChanged.connect(self._schedule_autosave)
+            row.password.textChanged.connect(self._schedule_autosave)
+
     def _refresh_status(self) -> None:
         self.status_label.setText(
             f"Provider: {self.config.provider} | 项目目录: {self.config.project_path or '未选择'}"
         )
+        self.codex_status_label.setText(
+            f"Provider: {self.config.codex.provider} | "
+            f"项目目录: {self.config.codex.project_path or '未选择'}"
+        )
+
+    def _handle_claude_launch_target_change(self) -> None:
+        if self._loading:
+            return
+        is_vscode = self.parameter_group.current_launch_target() == "vscode"
+        self.start_btn.setEnabled(not is_vscode)
+        if is_vscode:
+            _show_info_dialog(
+                self,
+                "VS Code使用说明",
+                "1. 请在vscode中删除claude code插件。"
+                "如果已删除或未安装，继续第2步。\n"
+                '2. 然后在启动目标中选择"启动Claude Code cli版"，'
+                "用于生成与修改项目代码。\n"
+                "3. 手动运行vscode，仅用于查看源代码与确认项目运行结果。",
+            )
+        self._schedule_autosave()
+
+    def _sync_claude_start_button_state(self) -> None:
+        self.start_btn.setEnabled(
+            self.parameter_group.current_launch_target() != "vscode"
+        )
+
+    def _handle_codex_launch_target_change(self) -> None:
+        if self._loading:
+            return
+        if self.codex_parameter_group.current_launch_target() == "vscode":
+            self.codex_log_console.append_entry(
+                "SYSTEM",
+                "用户需要自行在vscode中安装codex插件。",
+            )
+        self._schedule_autosave()
 
     def _schedule_autosave(self) -> None:
         if self._loading:
             return
         self._autosave_timer.start()
+
+    def _handle_codex_provider_change(self, provider: str) -> None:
+        if self._loading:
+            return
+        old_provider = self.config.codex.provider
+        self._sync_codex_config_from_ui(provider_override=old_provider)
+        self.config.codex.provider = provider
+        self._loading = True
+        try:
+            self.codex_parameter_group.apply_config(self.config.codex)
+            setting = self.config.codex.provider_settings[provider]
+            self.codex_proxy_group.apply_config(AppConfig(proxy=setting.proxy))
+        finally:
+            self._loading = False
+        self._sync_parameter_group_layouts()
+        self._refresh_status()
+        self._schedule_autosave()
 
     def _handle_provider_change(self, provider: str) -> None:
         """
@@ -374,6 +611,7 @@ class MainWindow(QMainWindow):
         finally:
             self._loading = False
 
+        self._sync_parameter_group_layouts()
         self._schedule_autosave()
         self._refresh_status()
 
@@ -390,8 +628,9 @@ class MainWindow(QMainWindow):
         self.config.default_haiku_model = data["default_haiku_model"]
         self.config.subagent_model = data["subagent_model"]
         self.config.effort_level = data["effort_level"]
+        self.config.claude_launch_target = data["launch_target"]
         self.config.project_path = data["project_path"]
-        # Kimi / GML5 专用参数
+        # Kimi / GLM5 专用参数
         self.config.enable_tool_search = data["enable_tool_search"]
         self.config.disable_nonessential_traffic = data["disable_nonessential_traffic"]
         self.config.api_timeout_ms = data["api_timeout_ms"]
@@ -412,11 +651,16 @@ class MainWindow(QMainWindow):
         if self._loading:
             return
         self._sync_config_from_ui()
+        self._sync_codex_config_from_ui()
         self.config_manager.save(self.config)
         self._refresh_status()
 
     def open_auth_settings(self) -> None:
-        dialog = AuthSettingsDialog(self.config.provider_settings, self)
+        dialog = AuthSettingsDialog(
+            self.config.provider_settings,
+            self.config.codex.provider_settings,
+            self,
+        )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
 
@@ -430,6 +674,15 @@ class MainWindow(QMainWindow):
             self.config.provider_settings[provider_key] = existing
             # 同步 auth_tokens 向后兼容字段
             self.config.auth_tokens[provider_key] = ps_new.token
+
+        for provider_key, new_setting in dialog.get_codex_settings().items():
+            existing = self.config.codex.provider_settings.get(
+                provider_key,
+                CodexProviderSettings(),
+            )
+            existing.base_url = new_setting.base_url
+            existing.token = new_setting.token
+            self.config.codex.provider_settings[provider_key] = existing
 
         # 若当前激活的 provider 被修改，更新快捷字段
         if self.config.provider in new_settings:
@@ -455,6 +708,43 @@ class MainWindow(QMainWindow):
             self.parameter_group.set_project_path(directory)
             self._schedule_autosave()
 
+    def pick_codex_project(self) -> None:
+        directory = QFileDialog.getExistingDirectory(self, "选择 Codex 工作目录")
+        if directory:
+            self.codex_parameter_group.project_path_edit.setText(directory)
+            self._schedule_autosave()
+
+    def _sync_codex_config_from_ui(self, provider_override: str | None = None) -> None:
+        provider = provider_override or self.codex_parameter_group.provider_combo.currentText()
+        setting = self.config.codex.provider_settings.setdefault(
+            provider,
+            CodexProviderSettings(),
+        )
+        if provider != CODEX_PROVIDER_OFFICIAL:
+            setting.model = self.codex_parameter_group.model_combo.currentText()
+            setting.reasoning_effort = self.codex_parameter_group.reasoning_combo.currentText()
+        proxy_data = self.codex_proxy_group.collect_config_data()
+        setting.proxy = ProxyConfig(
+            http=ProxyItem(**proxy_data["http"]),
+            https=ProxyItem(**proxy_data["https"]),
+            socks5=ProxyItem(**proxy_data["socks5"]),
+        )
+        self.config.codex.provider = self.codex_parameter_group.provider_combo.currentText()
+        self.config.codex.launch_target = (
+            self.codex_parameter_group.current_launch_target()
+        )
+        self.config.codex.project_path = self.codex_parameter_group.project_path_edit.text().strip()
+        if self.config.codex.project_path:
+            history = [
+                path
+                for path in self.config.codex.recent_projects
+                if path != self.config.codex.project_path
+            ]
+            self.config.codex.recent_projects = [
+                self.config.codex.project_path,
+                *history,
+            ][:10]
+
     def copy_logs_to_clipboard(self) -> None:
         QApplication.clipboard().setText(self.log_console.toPlainText())
         self.status_bar.showMessage("日志已复制到剪贴板", 3000)
@@ -467,6 +757,7 @@ class MainWindow(QMainWindow):
         try:
             # 保留当前 provider，重置后不跳转
             preserved_provider = self.config.provider
+            preserved_vscode_path = self.config.vscode_path
             # 保留鉴权信息（auth_tokens + provider_settings 中的 base_url/token）
             preserved_tokens = dict(self.config.auth_tokens)
             preserved_provider_settings: dict[str, ProviderSettings] = {}
@@ -489,6 +780,7 @@ class MainWindow(QMainWindow):
                 provider=preserved_provider,
                 auth_tokens=preserved_tokens,
                 provider_settings=preserved_provider_settings,
+                vscode_path=preserved_vscode_path,
                 # project_path 重置为空
                 project_path="",
             )
@@ -500,6 +792,29 @@ class MainWindow(QMainWindow):
             self.config_manager.save(self.config)
         finally:
             self._loading = False
+        self._refresh_status()
+        self._sync_claude_start_button_state()
+
+    def reset_codex_form(self) -> None:
+        if self.codex_process_manager.running:
+            QMessageBox.information(self, "提示", "Codex 正在运行，不能重置。")
+            return
+        provider = self.config.codex.provider
+        current = self.config.codex.provider_settings[provider]
+        defaults = CODEX_PROVIDER_DEFAULTS[provider]
+        current.model = str(defaults["default_model"])
+        current.reasoning_effort = str(defaults["default_reasoning_effort"])
+        current.proxy = ProxyConfig()
+        self.config.codex.launch_target = "desktop"
+        self.config.codex.project_path = ""
+        self._loading = True
+        try:
+            self.codex_parameter_group.apply_config(self.config.codex)
+            self.codex_proxy_group.apply_config(AppConfig(proxy=current.proxy))
+            self.codex_log_console.clear_logs()
+        finally:
+            self._loading = False
+        self.config_manager.save(self.config)
         self._refresh_status()
 
     def _validate_proxy_config(self) -> bool:
@@ -529,10 +844,8 @@ class MainWindow(QMainWindow):
 
         # 代理参数为空，弹窗提示
         msg = (
-            "如果你当前使用其它代理软件并设置了全局代理，无须在本软件中设置代理参数。\n\n"
-            "如果你当前使用其它代理软件而没有设置全局代理，使用 Claude 官方接口很可能需要你"
-            "设置 http 和 https 代理参数，否则会造成 Claude Code 运行异常或闪退，"
-            "点击确认继续启动。"
+            "如果不勾选http和https代理，有可能导致claude code运行异常或闪退。\n"
+            "点击确认继续，无代理启动claude code。"
         )
         return _show_confirm_dialog(self, "代理提示", msg)
 
@@ -540,11 +853,60 @@ class MainWindow(QMainWindow):
     # 启动 Claude Code
     # ------------------------------------------------------------------
 
+    def start_selected_claude_target(self) -> None:
+        target = self.parameter_group.current_launch_target()
+        if target == "upgrade":
+            self.upgrade_claude()
+        elif target == "cli":
+            self.start_claude()
+
     def start_claude(self) -> None:
+        self._start_claude_target()
+
+    def _resolve_vscode_for_launch(self) -> Path | None:
+        executable = self.vscode_service.resolve_executable(self.config.vscode_path)
+        if executable is not None:
+            if self.config.vscode_path != str(executable):
+                self.config.vscode_path = str(executable)
+                self.config_manager.save(self.config)
+            return executable
+
+        webbrowser.open(VSCODE_DOWNLOAD_URL, new=2)
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 VS Code 程序",
+            "",
+            "VS Code (Code.exe)",
+        )
+        if not selected:
+            _show_info_dialog(
+                self,
+                "未找到 VS Code",
+                "未检测到 VS Code，已打开官方下载页面。"
+                "安装完成后请重新点击启动vscode。",
+            )
+            return None
+        candidate = Path(selected)
+        if candidate.name.casefold() != "code.exe" or not candidate.is_file():
+            _show_info_dialog(self, "路径无效", "请选择有效的 Code.exe 文件。")
+            return None
+        self.config.vscode_path = str(candidate)
+        self.config_manager.save(self.config)
+        return candidate
+
+    def _start_claude_target(self) -> None:
         self._auto_save()
 
         if self.process_manager.running:
             QMessageBox.information(self, "提示", "Claude Code 已在运行，禁止重复启动。")
+            return
+        if self.claude_service.is_any_native_running():
+            QMessageBox.information(
+                self,
+                "提示",
+                "检测到 Claude Code 进程已通过其他方式启动。"
+                "请先关闭该进程后再试。",
+            )
             return
 
         # ── 校验：第三方 Provider 的 API 鉴权信息不能为空 ──────────
@@ -577,18 +939,18 @@ class MainWindow(QMainWindow):
             if not self._check_proxy_for_official():
                 return
 
-        self.status_label.setText("正在启动 Claude Code ...")
-        self.log_console.append_entry("SYSTEM", "正在启动 Claude Code ...")
+        target_name = "Claude Code CLI"
+        self.status_label.setText(f"正在启动 {target_name} ...")
+        self.log_console.append_entry("SYSTEM", f"正在启动 {target_name} ...")
 
         # ── 锁定 UI ──────────────────────────────────────────────
-        self.start_btn.setEnabled(False)
-        self.reset_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.upgrade_btn.setEnabled(False)
-        self.parameter_group.set_ui_enabled(False)
-        self.proxy_group.set_ui_enabled(False)
+        self._lock_claude_ui()
 
-        self.worker = ClaudeWorker(self.config, self.process_manager, upgrade_only=False)
+        self.worker = ClaudeWorker(
+            self.config,
+            self.process_manager,
+            upgrade_only=False,
+        )
         self.worker.log_signal.connect(self.log_console.append_process_output)
         self.worker.status_signal.connect(self._update_status)
         self.worker.error_signal.connect(self._on_worker_error)
@@ -597,6 +959,247 @@ class MainWindow(QMainWindow):
         self.worker.install_success_signal.connect(self._on_install_success)
         self.worker.install_progress_signal.connect(self._on_install_progress)
         self.worker.start()
+
+    def start_selected_codex_target(self) -> None:
+        target = self.codex_parameter_group.current_launch_target()
+        if target == "desktop":
+            self.start_codex_desktop()
+        elif target == "vscode":
+            self.start_codex_vscode()
+        elif target == "upgrade":
+            self.upgrade_codex()
+        else:
+            self.start_codex()
+
+    def start_codex(self) -> None:
+        self._start_codex_target("cli")
+
+    def start_codex_desktop(self) -> None:
+        self._start_codex_target("desktop")
+
+    def start_codex_vscode(self) -> None:
+        self._start_codex_target("vscode")
+
+    def _start_codex_target(self, launch_target: str) -> None:
+        self._auto_save()
+        if self.codex_process_manager.running:
+            QMessageBox.information(self, "提示", "Codex 已在运行，禁止重复启动。")
+            return
+        if (
+            launch_target in {"desktop", "cli"}
+            and self.codex_service.is_vscode_extension_running()
+        ):
+            QMessageBox.information(
+                self,
+                "提示",
+                "检测到 VS Code Codex 插件正在运行。"
+                "请先关闭 VS Code 中的 Codex 插件后再启动 Codex 桌面端或 CLI。",
+            )
+            return
+        desktop_executable = self.codex_service.resolve_desktop_executable()
+        if (
+            self.codex_service.is_any_desktop_running()
+            or self.codex_service.is_desktop_running(desktop_executable)
+        ):
+            QMessageBox.information(
+                self,
+                "提示",
+                "检测到 Codex 桌面端已在运行，请先关闭后再启动。",
+            )
+            return
+        vscode_executable = None
+        if launch_target == "vscode":
+            vscode_executable = self._resolve_vscode_for_launch()
+            if vscode_executable is None:
+                return
+            if self.vscode_service.is_running(vscode_executable):
+                QMessageBox.information(
+                    self,
+                    "提示",
+                    "检测到 VS Code 已通过其他方式启动，请先关闭所有 VS Code 窗口后再试。",
+                )
+                return
+        if launch_target == "desktop" and desktop_executable is None:
+            if _show_confirm_dialog(
+                self,
+                "未安装 Codex 桌面端",
+                "当前用户尚未安装 Windows 商店版 Codex。"
+                "是否打开 Microsoft Store 搜索 Codex？\n\n"
+                "安装和登录需要由用户在商店中手动完成。",
+            ):
+                QDesktopServices.openUrl(QUrl(CODEX_STORE_SEARCH_URI))
+            return
+        provider = self.config.codex.provider
+        setting = self.config.codex.provider_settings[provider]
+        if provider != CODEX_PROVIDER_OFFICIAL:
+            if not setting.token.strip():
+                QMessageBox.warning(
+                    self,
+                    "鉴权信息缺失",
+                    f"当前 Provider 为【{provider}】，请先在鉴权设置中填写 API Key。",
+                )
+                return
+            if not setting.base_url.strip():
+                QMessageBox.warning(self, "配置缺失", "Base URL 不能为空。")
+                return
+        if not self.config.codex.project_path.strip():
+            QMessageBox.warning(self, "校验失败", "项目目录不存在或不是有效目录。")
+            return
+        ok, message = self.codex_proxy_group.validate()
+        if not ok:
+            _show_info_dialog(self, "代理配置不完整", message)
+            return
+        if codex_has_only_socks5(setting.proxy):
+            _show_info_dialog(
+                self,
+                "Codex代理不兼容",
+                "Codex当前不能可靠地仅使用Socks5代理。\n\n"
+                "请启用HTTP或HTTPS代理后再启动。",
+            )
+            return
+        if provider == CODEX_PROVIDER_OFFICIAL and not self._codex_has_proxy():
+            if not _show_confirm_dialog(
+                self,
+                "代理提示",
+                "如果不勾选http和https代理，有可能导致codex运行异常或闪退。\n"
+                "点击确认继续，无代理启动codex。",
+            ):
+                return
+
+        target_name = {
+            "desktop": "Codex 桌面端",
+            "vscode": "VS Code",
+        }.get(launch_target, "Codex CLI")
+        self.codex_status_label.setText(f"正在启动 {target_name} ...")
+        self.codex_log_console.append_entry("SYSTEM", f"正在启动 {target_name} ...")
+        self._lock_codex_ui()
+        self.codex_worker = CodexWorker(
+            provider=provider,
+            settings=setting,
+            project_path=self.config.codex.project_path,
+            process_manager=self.codex_process_manager,
+            launch_target=launch_target,
+            desktop_executable=desktop_executable,
+            vscode_executable=vscode_executable,
+        )
+        self._connect_codex_worker()
+        self.codex_worker.start()
+
+    def upgrade_codex(self) -> None:
+        if self.codex_process_manager.running:
+            QMessageBox.information(self, "提示", "Codex 正在运行，请先停止后再升级。")
+            return
+        desktop_executable = self.codex_service.resolve_desktop_executable()
+        if self.codex_service.is_desktop_running(desktop_executable):
+            QMessageBox.information(
+                self,
+                "提示",
+                "检测到 Codex 桌面端已在运行，请先关闭后再升级 Codex CLI。",
+            )
+            return
+        provider = self.config.codex.provider
+        setting = self.config.codex.provider_settings[provider]
+        self.codex_status_label.setText("正在升级 Codex CLI ...")
+        self.codex_log_console.append_entry("SYSTEM", "正在升级 Codex CLI ...")
+        self._lock_codex_ui()
+        self.codex_worker = CodexWorker(
+            provider=provider,
+            settings=setting,
+            project_path=self.config.codex.project_path,
+            process_manager=self.codex_process_manager,
+            upgrade_only=True,
+        )
+        self._connect_codex_worker()
+        self.codex_worker.start()
+
+    def _connect_codex_worker(self) -> None:
+        if self.codex_worker is None:
+            return
+        self.codex_worker.log_signal.connect(self.codex_log_console.append_process_output)
+        self.codex_worker.status_signal.connect(self._update_codex_status)
+        self.codex_worker.error_signal.connect(self._on_codex_error)
+        self.codex_worker.finished_signal.connect(self._on_codex_finished)
+        self.codex_worker.npm_not_found_signal.connect(self._on_codex_npm_not_found)
+        self.codex_worker.install_success_signal.connect(self._on_codex_install_success)
+
+    def _codex_has_proxy(self) -> bool:
+        return any(
+            row.enabled.isChecked() and row.host.text().strip()
+            for row in (
+                self.codex_proxy_group.http,
+                self.codex_proxy_group.https,
+                self.codex_proxy_group.socks5,
+            )
+        )
+
+    def _lock_codex_ui(self) -> None:
+        self.codex_start_btn.setEnabled(False)
+        self.codex_reset_btn.setEnabled(False)
+        self.codex_stop_btn.setEnabled(True)
+        self.codex_parameter_group.set_ui_enabled(False)
+        self.codex_proxy_group.set_ui_enabled(False)
+
+    def _unlock_codex_ui(self) -> None:
+        self.codex_start_btn.setEnabled(True)
+        self.codex_reset_btn.setEnabled(True)
+        self.codex_stop_btn.setEnabled(False)
+        self.codex_parameter_group.set_ui_enabled(True)
+        self.codex_proxy_group.set_ui_enabled(True)
+
+    def _update_codex_status(self, text: str) -> None:
+        self.codex_status_label.setText(text)
+        self.codex_log_console.append_entry("SYSTEM", text)
+
+    def _on_codex_error(self, text: str) -> None:
+        self.codex_status_label.setText("操作失败")
+        self.codex_log_console.append_entry("ERROR", text)
+        QMessageBox.critical(self, "Codex 操作失败", text)
+        self._unlock_codex_ui()
+        self.codex_process_manager.clear()
+
+    def _on_codex_finished(self, return_code: int) -> None:
+        if self.codex_worker is not None and self.codex_worker.upgrade_only:
+            if self.codex_worker.already_latest:
+                message = "Codex CLI 已是最新版本，无须升级。"
+                self.codex_status_label.setText(message)
+                _show_info_dialog(self, "无需升级", message)
+            else:
+                self.codex_status_label.setText("Codex CLI 升级流程结束。")
+        else:
+            target_name = (
+                {
+                    "desktop": "Codex 桌面端",
+                    "vscode": "VS Code",
+                }.get(self.codex_worker.launch_target, "Codex CLI")
+                if self.codex_worker is not None
+                else "Codex CLI"
+            )
+            self.codex_status_label.setText(
+                f"{target_name} 已退出，返回码：{return_code}"
+            )
+        self._unlock_codex_ui()
+        self.codex_process_manager.clear()
+
+    def _on_codex_npm_not_found(self, download_url: str) -> None:
+        self._unlock_codex_ui()
+        _show_info_dialog(
+            self,
+            "未安装 Node.js",
+            "当前系统尚未安装 Node.js，请先安装后再运行本程序。",
+        )
+        webbrowser.open(download_url, new=2)
+
+    def _on_codex_install_success(self) -> None:
+        self._unlock_codex_ui()
+        self.codex_status_label.setText("Codex CLI 已成功安装。")
+        self.codex_log_console.append_entry("SYSTEM", "Codex CLI 已成功安装。")
+        _show_info_dialog(
+            self,
+            "安装成功",
+            "Codex CLI 已成功安装，请重启本软件后使用。\n\n"
+            "点击确认后，本软件将自动关闭。",
+        )
+        QApplication.instance().quit()
 
     # ------------------------------------------------------------------
     # 升级 Claude Code（独立按钮）
@@ -612,12 +1215,7 @@ class MainWindow(QMainWindow):
         self.log_console.append_entry("SYSTEM", "正在升级 Claude Code ...")
 
         # ── 锁定 UI ──────────────────────────────────────────────
-        self.start_btn.setEnabled(False)
-        self.reset_btn.setEnabled(False)
-        self.upgrade_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.parameter_group.set_ui_enabled(False)
-        self.proxy_group.set_ui_enabled(False)
+        self._lock_claude_ui()
 
         self.worker = ClaudeWorker(self.config, self.process_manager, upgrade_only=True)
         self.worker.log_signal.connect(self.log_console.append_process_output)
@@ -689,9 +1287,15 @@ class MainWindow(QMainWindow):
     def _on_worker_finished(self, return_code: int) -> None:
         # 根据 worker 模式显示不同的状态信息
         if self.worker is not None and self.worker.upgrade_only:
-            self.status_label.setText("Claude Code 升级流程结束。")
+            if self.worker.already_latest:
+                message = "Claude Code 已是最新版本，无须升级。"
+                self.status_label.setText(message)
+                _show_info_dialog(self, "无需升级", message)
+            else:
+                self.status_label.setText("Claude Code 升级流程结束。")
         else:
-            self.status_label.setText(f"Claude Code 已退出，返回码：{return_code}")
+            target_name = "Claude Code CLI"
+            self.status_label.setText(f"{target_name} 已退出，返回码：{return_code}")
         self.install_progress_bar.setVisible(False)
         self.install_progress_label.setVisible(False)
         self._unlock_ui()
@@ -705,22 +1309,36 @@ class MainWindow(QMainWindow):
         if self.worker:
             self.worker.request_soft_stop()
 
+    def stop_codex(self) -> None:
+        if self.codex_worker:
+            self.codex_worker.request_soft_stop()
+
     def _unlock_ui(self) -> None:
-        self.start_btn.setEnabled(True)
+        self._sync_claude_start_button_state()
         self.reset_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.upgrade_btn.setEnabled(True)
         self.parameter_group.set_ui_enabled(True)
         self.proxy_group.set_ui_enabled(True)
 
+    def _lock_claude_ui(self) -> None:
+        self.start_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.parameter_group.set_ui_enabled(False)
+        self.proxy_group.set_ui_enabled(False)
+
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self.process_manager.running:
+        if self.process_manager.running or self.codex_process_manager.running:
             # 使用自定义弹窗，避免全局 QPushButton { color: white } 导致系统弹窗按钮文字白色不可见
             if not _ask_force_quit(self):
                 event.ignore()
                 return
             if self.worker:
                 self.worker.request_hard_stop()
+                self.worker.wait(5000)
+            if self.codex_worker:
+                self.codex_worker.request_hard_stop()
+                self.codex_worker.wait(5000)
 
         self._auto_save()
         event.accept()

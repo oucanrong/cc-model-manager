@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .constants import (
+    CLAUDE_LAUNCH_TARGET_DEFAULT,
+    CLAUDE_LAUNCH_TARGET_OPTIONS,
+    CODEX_PROVIDER_DEFAULTS,
+    CODEX_LAUNCH_TARGET_DEFAULT,
+    CODEX_LAUNCH_TARGET_OPTIONS,
+    CODEX_PROVIDER_OFFICIAL,
+    CODEX_PROVIDER_OPTIONS,
     CONFIG_PATH,
     DEFAULT_PROVIDER,
     DEFAULT_MODEL,
@@ -19,6 +26,7 @@ from .constants import (
     DEFAULT_SUBAGENT_MODEL,
     DEFAULT_EFFORT_LEVEL,
     DEFAULT_RECENT_PROJECTS,
+    PROVIDER_MINIMAX,
     PROVIDER_OPTIONS,
     get_provider_preset,
 )
@@ -51,7 +59,7 @@ class ProviderSettings:
     effort_level: str = ""
     # Kimi 专用
     enable_tool_search: str = "false"
-    # GML5 专用
+    # GLM5 专用
     disable_nonessential_traffic: str = "1"
     api_timeout_ms: str = "3000000"
     # 小米MiMo / 方舟Coding Plan 专用
@@ -60,8 +68,39 @@ class ProviderSettings:
 
 
 @dataclass
+class CodexProviderSettings:
+    base_url: str = ""
+    token: str = ""
+    model: str = ""
+    reasoning_effort: str = ""
+    proxy: ProxyConfig = field(default_factory=ProxyConfig)
+
+
+@dataclass
+class CodexConfig:
+    provider: str = CODEX_PROVIDER_OFFICIAL
+    launch_target: str = CODEX_LAUNCH_TARGET_DEFAULT
+    project_path: str = ""
+    recent_projects: list[str] = field(default_factory=list)
+    provider_settings: dict[str, CodexProviderSettings] = field(default_factory=dict)
+
+
+def create_default_codex_config() -> CodexConfig:
+    settings = {}
+    for provider_name in CODEX_PROVIDER_OPTIONS:
+        defaults = CODEX_PROVIDER_DEFAULTS[provider_name]
+        settings[provider_name] = CodexProviderSettings(
+            base_url=str(defaults["base_url"]),
+            model=str(defaults["default_model"]),
+            reasoning_effort=str(defaults["default_reasoning_effort"]),
+        )
+    return CodexConfig(provider_settings=settings)
+
+
+@dataclass
 class AppConfig:
     provider: str = DEFAULT_PROVIDER
+    claude_launch_target: str = CLAUDE_LAUNCH_TARGET_DEFAULT
     base_url: str = ""
     token: str = ""
     auth_tokens: dict[str, str] = field(default_factory=dict)
@@ -73,7 +112,7 @@ class AppConfig:
     effort_level: str = DEFAULT_EFFORT_LEVEL
     # Kimi 专用
     enable_tool_search: str = "false"
-    # GML5 专用
+    # GLM5 专用
     disable_nonessential_traffic: str = "1"
     api_timeout_ms: str = "3000000"
     # 小米MiMo / 方舟Coding Plan 专用
@@ -81,7 +120,9 @@ class AppConfig:
     project_path: str = ""
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     recent_projects: list[str] = field(default_factory=list)
+    vscode_path: str = ""
     provider_settings: dict[str, ProviderSettings] = field(default_factory=dict)
+    codex: CodexConfig = field(default_factory=create_default_codex_config)
 
 
 class ConfigManager:
@@ -141,7 +182,7 @@ class ConfigManager:
         config.proxy = copy.deepcopy(ps.proxy)
         # Kimi 专用参数
         config.enable_tool_search = ps.enable_tool_search or preset.enable_tool_search_default
-        # GML5 专用参数
+        # GLM5 专用参数
         config.disable_nonessential_traffic = ps.disable_nonessential_traffic or preset.disable_nonessential_traffic_default
         config.api_timeout_ms = ps.api_timeout_ms or preset.api_timeout_ms_default
         # 小米MiMo / 方舟Coding Plan 专用参数
@@ -171,6 +212,8 @@ class ConfigManager:
         config.provider_settings[config.provider] = ps
 
     def _from_dict(self, data: dict[str, Any]) -> AppConfig:
+        self._migrate_minimax_name(data)
+        self._migrate_codex_ark_name(data)
         provider = data.get("provider", DEFAULT_PROVIDER)
         if provider not in PROVIDER_OPTIONS:
             provider = DEFAULT_PROVIDER
@@ -212,8 +255,46 @@ class ConfigManager:
                     effort_level=preset.effort_level_default,
                     # proxy 使用 default_factory 自动创建独立实例
                 )
+        codex_data = data.get("codex") or {}
+        claude_launch_targets = {value for value, _ in CLAUDE_LAUNCH_TARGET_OPTIONS}
+        claude_launch_target = str(
+            data.get("claude_launch_target", CLAUDE_LAUNCH_TARGET_DEFAULT) or ""
+        )
+        if claude_launch_target not in claude_launch_targets:
+            claude_launch_target = CLAUDE_LAUNCH_TARGET_DEFAULT
+        codex_launch_targets = {value for value, _ in CODEX_LAUNCH_TARGET_OPTIONS}
+        codex_launch_target = str(
+            codex_data.get("launch_target", CODEX_LAUNCH_TARGET_DEFAULT) or ""
+        )
+        if codex_launch_target not in codex_launch_targets:
+            codex_launch_target = CODEX_LAUNCH_TARGET_DEFAULT
+        codex_provider = str(codex_data.get("provider", CODEX_PROVIDER_OFFICIAL) or "")
+        if codex_provider not in CODEX_PROVIDER_OPTIONS:
+            codex_provider = CODEX_PROVIDER_OFFICIAL
+        codex_settings: dict[str, CodexProviderSettings] = {}
+        raw_codex_settings = codex_data.get("provider_settings") or {}
+        for provider_name in CODEX_PROVIDER_OPTIONS:
+            raw = raw_codex_settings.get(provider_name) or {}
+            defaults = CODEX_PROVIDER_DEFAULTS[provider_name]
+            proxy_data = raw.get("proxy") or {}
+            codex_settings[provider_name] = CodexProviderSettings(
+                base_url=str(raw.get("base_url", "") or defaults["base_url"]),
+                token=str(raw.get("token", "") or ""),
+                model=str(raw.get("model", "") or defaults["default_model"]),
+                reasoning_effort=str(
+                    raw.get("reasoning_effort", "")
+                    or defaults["default_reasoning_effort"]
+                ),
+                proxy=ProxyConfig(
+                    http=ProxyItem(**(proxy_data.get("http") or {})),
+                    https=ProxyItem(**(proxy_data.get("https") or {})),
+                    socks5=ProxyItem(**(proxy_data.get("socks5") or {})),
+                ),
+            )
+
         return AppConfig(
             provider=provider,
+            claude_launch_target=claude_launch_target,
             base_url=str(data.get("base_url", "") or ""),
             token=auth_tokens.get(provider, ""),
             auth_tokens=auth_tokens,
@@ -232,8 +313,41 @@ class ConfigManager:
             # provider_settings[provider] 中深拷贝加载当前 provider 的真实代理配置
             proxy=ProxyConfig(),
             recent_projects=data.get("recent_projects", []) or [],
+            vscode_path=str(data.get("vscode_path", "") or ""),
             provider_settings=provider_settings,
+            codex=CodexConfig(
+                provider=codex_provider,
+                launch_target=codex_launch_target,
+                project_path=str(codex_data.get("project_path", "") or ""),
+                recent_projects=codex_data.get("recent_projects", []) or [],
+                provider_settings=codex_settings,
+            ),
         )
+
+    @staticmethod
+    def _migrate_minimax_name(data: dict[str, Any]) -> None:
+        legacy = "MINIMAX"
+        if data.get("provider") == legacy:
+            data["provider"] = PROVIDER_MINIMAX
+        auth_tokens = data.get("auth_tokens")
+        if isinstance(auth_tokens, dict) and legacy in auth_tokens:
+            auth_tokens.setdefault(PROVIDER_MINIMAX, auth_tokens.pop(legacy))
+        provider_settings = data.get("provider_settings")
+        if isinstance(provider_settings, dict) and legacy in provider_settings:
+            provider_settings.setdefault(PROVIDER_MINIMAX, provider_settings.pop(legacy))
+
+    @staticmethod
+    def _migrate_codex_ark_name(data: dict[str, Any]) -> None:
+        legacy = "方舟 Coding Plan"
+        current = "方舟Coding Plan"
+        codex = data.get("codex")
+        if not isinstance(codex, dict):
+            return
+        if codex.get("provider") == legacy:
+            codex["provider"] = current
+        settings = codex.get("provider_settings")
+        if isinstance(settings, dict) and legacy in settings:
+            settings.setdefault(current, settings.pop(legacy))
 
     def _to_dict(self, config: AppConfig) -> dict[str, Any]:
         ps_dict = {}
@@ -258,10 +372,42 @@ class ConfigManager:
                     "socks5": {"enabled": ps.proxy.socks5.enabled, "host": ps.proxy.socks5.host, "port": ps.proxy.socks5.port, "auth": ps.proxy.socks5.auth},
                 },
             }
+        codex_settings = {}
+        for provider_name in CODEX_PROVIDER_OPTIONS:
+            defaults = CODEX_PROVIDER_DEFAULTS[provider_name]
+            setting = config.codex.provider_settings.get(
+                provider_name,
+                CodexProviderSettings(
+                    base_url=str(defaults["base_url"]),
+                    model=str(defaults["default_model"]),
+                    reasoning_effort=str(defaults["default_reasoning_effort"]),
+                ),
+            )
+            codex_settings[provider_name] = {
+                "base_url": setting.base_url,
+                "token": setting.token,
+                "model": setting.model,
+                "reasoning_effort": setting.reasoning_effort,
+                "proxy": {
+                    "http": asdict(setting.proxy.http),
+                    "https": asdict(setting.proxy.https),
+                    "socks5": asdict(setting.proxy.socks5),
+                },
+            }
+
         return {
             "provider": config.provider,
+            "claude_launch_target": config.claude_launch_target,
             "auth_tokens": config.auth_tokens,
             "project_path": config.project_path,
             "recent_projects": config.recent_projects[:DEFAULT_RECENT_PROJECTS],
+            "vscode_path": config.vscode_path,
             "provider_settings": ps_dict,
+            "codex": {
+                "provider": config.codex.provider,
+                "launch_target": config.codex.launch_target,
+                "project_path": config.codex.project_path,
+                "recent_projects": config.codex.recent_projects[:DEFAULT_RECENT_PROJECTS],
+                "provider_settings": codex_settings,
+            },
         }

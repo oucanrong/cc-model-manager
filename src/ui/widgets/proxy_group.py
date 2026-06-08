@@ -138,8 +138,7 @@ class ProxyGroup(QGroupBox):
             if not port:
                 return (
                     False,
-                    f"您已勾选【{label}】，但未填写端口号。\n\n"
-                    "请填写端口号后再启动，或取消勾选该代理。",
+                    "请填写由其它代理软件定义的端口号。",
                 )
         return True, ""
 

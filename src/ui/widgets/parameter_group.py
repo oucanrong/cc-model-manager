@@ -1,9 +1,9 @@
 # 路径: C:\Users\oucan\Documents\vscode\claude_code启动器\src\ui\widgets\parameter_group.py
 # 作用: 启动参数区域控件
-#   - DeepSeek / Kimi / 智谱GML / 阿里千问 / MINIMAX / 小米MiMo / 方舟Coding Plan：base_url 不在主界面显示（在鉴权弹窗编辑），
+#   - DeepSeek / Kimi / 智谱GLM / 阿里千问 / MINIMAX / 小米MiMo / 方舟Coding Plan：base_url 不在主界面显示（在鉴权弹窗编辑），
 #     模型下拉框可用。
 #   - Kimi：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 ENABLE_TOOL_SEARCH（下拉框，只有 false）。
-#   - 智谱GML / MINIMAX：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（下拉框，只有 1）和 API_TIMEOUT_MS（文本输入框）。
+#   - 智谱GLM / MINIMAX：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（下拉框，只有 1）和 API_TIMEOUT_MS（文本输入框）。
 #   - 小米MiMo / 方舟Coding Plan：不显示 CLAUDE_CODE_EFFORT_LEVEL，显示 hasCompletedOnboarding（下拉框，只有 true）。
 #   - 阿里千问：不显示 CLAUDE_CODE_EFFORT_LEVEL。
 #   - Claude中转：base_url 同样不在主界面显示（从 config 静默读取），
@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
 
 from src.core.config_manager import AppConfig
 from src.core.constants import (
+    CLAUDE_LAUNCH_TARGET_DEFAULT,
+    CLAUDE_LAUNCH_TARGET_OPTIONS,
     DEFAULT_PROVIDER,
     PROVIDER_OPTIONS,
     PROVIDER_CLAUDE_RELAY,
@@ -144,12 +146,12 @@ class ParameterGroup(QGroupBox):
         self.enable_tool_search.setMinimumHeight(26)
         self.enable_tool_search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # GML5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 下拉框（只有 1 一个选项）
+        # GLM5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 下拉框（只有 1 一个选项）
         self.disable_nonessential_traffic = QComboBox()
         self.disable_nonessential_traffic.setMinimumHeight(26)
         self.disable_nonessential_traffic.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # GML5 / MINIMAX 专用：API_TIMEOUT_MS 文本输入框
+        # GLM5 / MINIMAX 专用：API_TIMEOUT_MS 文本输入框
         self.api_timeout_ms = QLineEdit()
         self.api_timeout_ms.setMinimumHeight(26)
         self.api_timeout_ms.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -158,6 +160,15 @@ class ParameterGroup(QGroupBox):
         self.has_completed_onboarding = QComboBox()
         self.has_completed_onboarding.setMinimumHeight(26)
         self.has_completed_onboarding.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self.launch_target_combo = QComboBox()
+        for value, label in CLAUDE_LAUNCH_TARGET_OPTIONS:
+            self.launch_target_combo.addItem(label, value)
+        self.launch_target_combo.setMinimumHeight(26)
+        self.launch_target_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
 
         self.project_path_edit = QLineEdit()
         self.project_path_edit.setMinimumHeight(26)
@@ -183,64 +194,72 @@ class ParameterGroup(QGroupBox):
         self._layout.setVerticalSpacing(10)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setColumnStretch(1, 1)
+        self._layout.setRowStretch(13, 1)
+        self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # 行 0：Provider
-        self._layout.addWidget(self._make_label("Provider"), 0, 0)
+        # 行 0：API供应商
+        self.provider_label = self._make_label("API供应商")
+        self._layout.addWidget(self.provider_label, 0, 0)
         self._layout.addWidget(self.provider_combo, 0, 1)
 
-        # 行 1：ANTHROPIC_MODEL（下拉框）
-        self._label_model_main = self._make_label("ANTHROPIC_MODEL")
+        # 行 1：默认模型（下拉框）
+        self._label_model_main = self._make_label("默认模型")
         self._layout.addWidget(self._label_model_main, 1, 0)
         self._layout.addWidget(self.model_main, 1, 1)
 
-        # 行 2：ANTHROPIC_DEFAULT_OPUS_MODEL
-        self._label_model_opus = self._make_label("ANTHROPIC_DEFAULT_OPUS_MODEL")
+        # 行 2：最复杂任务模型
+        self._label_model_opus = self._make_label("最复杂任务模型")
         self._layout.addWidget(self._label_model_opus, 2, 0)
         self._layout.addWidget(self.model_opus, 2, 1)
 
-        # 行 3：ANTHROPIC_DEFAULT_SONNET_MODEL
-        self._label_model_sonnet = self._make_label("ANTHROPIC_DEFAULT_SONNET_MODEL")
+        # 行 3：日常编码模型
+        self._label_model_sonnet = self._make_label("日常编码模型")
         self._layout.addWidget(self._label_model_sonnet, 3, 0)
         self._layout.addWidget(self.model_sonnet, 3, 1)
 
-        # 行 4：ANTHROPIC_DEFAULT_HAIKU_MODEL
-        self._label_model_haiku = self._make_label("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+        # 行 4：简单任务模型
+        self._label_model_haiku = self._make_label("简单任务模型")
         self._layout.addWidget(self._label_model_haiku, 4, 0)
         self._layout.addWidget(self.model_haiku, 4, 1)
 
-        # 行 5：CLAUDE_CODE_SUBAGENT_MODEL
-        self._label_model_subagent = self._make_label("CLAUDE_CODE_SUBAGENT_MODEL")
+        # 行 5：子代理模型
+        self._label_model_subagent = self._make_label("子代理模型")
         self._layout.addWidget(self._label_model_subagent, 5, 0)
         self._layout.addWidget(self.model_subagent, 5, 1)
 
-        # 行 6：CLAUDE_CODE_EFFORT_LEVEL
-        self._label_effort = self._make_label("CLAUDE_CODE_EFFORT_LEVEL")
+        # 行 6：推理强度
+        self._label_effort = self._make_label("推理强度")
         self._layout.addWidget(self._label_effort, 6, 0)
         self._layout.addWidget(self.effort_level, 6, 1)
 
         # 行 7：ENABLE_TOOL_SEARCH（Kimi 专用）
-        self._label_enable_tool_search = self._make_label("ENABLE_TOOL_SEARCH")
+        self._label_enable_tool_search = self._make_label("启用工具搜索")
         self._layout.addWidget(self._label_enable_tool_search, 7, 0)
         self._layout.addWidget(self.enable_tool_search, 7, 1)
 
-        # 行 8：API_TIMEOUT_MS（GML5 / MINIMAX 专用）
-        self._label_api_timeout_ms = self._make_label("API_TIMEOUT_MS")
+        # 行 8：API_TIMEOUT_MS（GLM5 / MINIMAX 专用）
+        self._label_api_timeout_ms = self._make_label("API请求超时时间（毫秒）")
         self._layout.addWidget(self._label_api_timeout_ms, 8, 0)
         self._layout.addWidget(self.api_timeout_ms, 8, 1)
 
-        # 行 9：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GML5 / MINIMAX 专用）
-        self._label_disable_nonessential_traffic = self._make_label("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+        # 行 9：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GLM5 / MINIMAX 专用）
+        self._label_disable_nonessential_traffic = self._make_label("禁用非必要网络流量")
         self._layout.addWidget(self._label_disable_nonessential_traffic, 9, 0)
         self._layout.addWidget(self.disable_nonessential_traffic, 9, 1)
 
         # 行 10：hasCompletedOnboarding（小米MiMo / 方舟Coding Plan 专用）
-        self._label_has_completed_onboarding = self._make_label("hasCompletedOnboarding")
+        self._label_has_completed_onboarding = self._make_label("跳过首次引导")
         self._layout.addWidget(self._label_has_completed_onboarding, 10, 0)
         self._layout.addWidget(self.has_completed_onboarding, 10, 1)
 
-        # 行 11：工作目录
-        self._layout.addWidget(self.pick_btn, 11, 0)
-        self._layout.addWidget(self.project_path_edit, 11, 1)
+        # 行 11：启动目标
+        self.launch_target_label = self._make_label("启动目标")
+        self._layout.addWidget(self.launch_target_label, 11, 0)
+        self._layout.addWidget(self.launch_target_combo, 11, 1)
+
+        # 行 12：工作目录
+        self._layout.addWidget(self.pick_btn, 12, 0)
+        self._layout.addWidget(self.project_path_edit, 12, 1)
 
         self.setLayout(self._layout)
 
@@ -276,6 +295,7 @@ class ParameterGroup(QGroupBox):
         self.disable_nonessential_traffic.setEnabled(enabled)
         self.api_timeout_ms.setEnabled(enabled)
         self.has_completed_onboarding.setEnabled(enabled)
+        self.launch_target_combo.setEnabled(enabled)
         self.pick_btn.setEnabled(enabled)
         self.project_path_edit.setEnabled(enabled)
 
@@ -369,7 +389,7 @@ class ParameterGroup(QGroupBox):
             self._label_enable_tool_search.setVisible(False)
             self.enable_tool_search.setVisible(False)
 
-        # 根据预设隐藏/显示 API_TIMEOUT_MS（GML5 / MINIMAX 专用，文本输入框）
+        # 根据预设隐藏/显示 API_TIMEOUT_MS（GLM5 / MINIMAX 专用，文本输入框）
         if preset.show_api_timeout_ms:
             self._label_api_timeout_ms.setVisible(True)
             self.api_timeout_ms.setVisible(True)
@@ -377,7 +397,7 @@ class ParameterGroup(QGroupBox):
             self._label_api_timeout_ms.setVisible(False)
             self.api_timeout_ms.setVisible(False)
 
-        # 根据预设隐藏/显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GML5 / MINIMAX 专用，下拉框）
+        # 根据预设隐藏/显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GLM5 / MINIMAX 专用，下拉框）
         if preset.show_disable_nonessential_traffic:
             self._label_disable_nonessential_traffic.setVisible(True)
             self.disable_nonessential_traffic.setVisible(True)
@@ -404,6 +424,7 @@ class ParameterGroup(QGroupBox):
         del blocker
 
         self.set_provider(provider)
+        self.set_launch_target(config.claude_launch_target)
 
         preset = get_provider_preset(provider)
 
@@ -442,12 +463,12 @@ class ParameterGroup(QGroupBox):
             elif self.enable_tool_search.count() > 0:
                 self.enable_tool_search.setCurrentIndex(0)
 
-        # GML5 / MINIMAX 专用：API_TIMEOUT_MS 恢复
+        # GLM5 / MINIMAX 专用：API_TIMEOUT_MS 恢复
         if preset.show_api_timeout_ms:
             val = config.api_timeout_ms.strip() or preset.api_timeout_ms_default
             self.api_timeout_ms.setText(val)
 
-        # GML5 / MINIMAX 专用参数恢复
+        # GLM5 / MINIMAX 专用参数恢复
         if preset.show_disable_nonessential_traffic:
             val = config.disable_nonessential_traffic.strip() or preset.disable_nonessential_traffic_default
             if self.disable_nonessential_traffic.findText(val) >= 0:
@@ -478,6 +499,7 @@ class ParameterGroup(QGroupBox):
             "default_haiku_model": self.model_haiku.currentText(),
             "subagent_model": self.model_subagent.currentText(),
             "effort_level": self.effort_level.currentText(),
+            "launch_target": self.current_launch_target(),
             "project_path": self.project_path_edit.text().strip(),
             "enable_tool_search": self.enable_tool_search.currentText() if preset.show_enable_tool_search else "",
             "disable_nonessential_traffic": self.disable_nonessential_traffic.currentText() if preset.show_disable_nonessential_traffic else "",
@@ -487,3 +509,13 @@ class ParameterGroup(QGroupBox):
 
     def set_project_path(self, path: str) -> None:
         self.project_path_edit.setText(path)
+
+    def current_launch_target(self) -> str:
+        value = self.launch_target_combo.currentData()
+        return str(value or CLAUDE_LAUNCH_TARGET_DEFAULT)
+
+    def set_launch_target(self, value: str) -> None:
+        index = self.launch_target_combo.findData(value)
+        if index < 0:
+            index = self.launch_target_combo.findData(CLAUDE_LAUNCH_TARGET_DEFAULT)
+        self.launch_target_combo.setCurrentIndex(index)

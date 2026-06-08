@@ -55,6 +55,31 @@ class ProcessManager:
         self._handle = ProcessHandle(process=proc, started_at=time.time())
         return proc
 
+    def start_gui(
+        self,
+        executable: Path,
+        cwd: Path,
+        env: dict[str, str],
+        arguments: list[str] | None = None,
+    ) -> subprocess.Popen:
+        if self.running:
+            raise RuntimeError("Codex 已在运行，禁止重复启动。")
+        kwargs: dict[str, object] = {
+            "cwd": str(cwd),
+            "env": env,
+            "stdin": None,
+            "stdout": None,
+            "stderr": None,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        else:
+            kwargs["start_new_session"] = True
+        command = [str(executable), *(arguments or [])]
+        proc = subprocess.Popen(command, **kwargs)
+        self._handle = ProcessHandle(process=proc, started_at=time.time())
+        return proc
+
     def stop_soft(self) -> bool:
         proc = self.process
         if not proc or proc.poll() is not None:
@@ -67,6 +92,16 @@ class ProcessManager:
             return True
         except Exception:
             return False
+
+    def stop_gui(self) -> bool:
+        proc = self.process
+        if not proc or proc.poll() is not None:
+            return True
+        try:
+            proc.terminate()
+            return True
+        except Exception:
+            return self.stop_hard()
 
     def stop_hard(self) -> bool:
         proc = self.process

@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import webbrowser
 from pathlib import Path
+
+import psutil
 
 from src.core.config_manager import AppConfig
 from .env_builder_service import build_env
@@ -219,6 +222,52 @@ class ClaudeService:
         comspec = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd.exe"
         return [comspec, "/d", "/c", upgrade_args]
 
+    def get_installed_package_version(self) -> str | None:
+        return self._get_npm_package_version(installed=True)
+
+    def get_latest_package_version(self) -> str | None:
+        return self._get_npm_package_version(installed=False)
+
+    def _get_npm_package_version(self, installed: bool) -> str | None:
+        npm_args = (
+            ["npm", "list", "-g", self.install_package, "--depth=0", "--json"]
+            if installed
+            else [
+                "npm",
+                "view",
+                self.install_package,
+                "version",
+                "--json",
+                f"--registry={_NPM_REGISTRY}",
+            ]
+        )
+        command = npm_args
+        if os.name == "nt":
+            comspec = os.environ.get("COMSPEC") or shutil.which("cmd") or "cmd.exe"
+            command = [comspec, "/d", "/c", *npm_args]
+        kwargs: dict = {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        try:
+            result = subprocess.run(command, **kwargs)
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            if installed:
+                package = (data.get("dependencies") or {}).get(self.install_package) or {}
+                version = package.get("version")
+            else:
+                version = data
+            return str(version).strip() if version else None
+        except (OSError, ValueError, TypeError):
+            return None
+
     def upgrade_claude_code(self) -> subprocess.CompletedProcess[str]:
         """
         使用淘宝源升级 Claude Code 到最新版本，隐藏命令行窗口（Windows）。
@@ -245,3 +294,26 @@ class ClaudeService:
         self._augment_env_with_claude_path(env)
         command = self.build_command()
         return project_path, env, command
+
+    @staticmethod
+    def is_any_native_running() -> bool:
+        for process in psutil.process_iter(["name"]):
+            try:
+                if str(process.info.get("name") or "").casefold() == "claude.exe":
+                    return True
+            except psutil.Error:
+                continue
+        return False
+
+    @staticmethod
+    def _run_hidden(command: list[str]) -> subprocess.CompletedProcess[str]:
+        kwargs: dict[str, object] = {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        return subprocess.run(command, **kwargs)

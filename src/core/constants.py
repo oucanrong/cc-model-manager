@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_NAME = "Claude-Code模型管理器v2.0"
+APP_NAME = "cc模型管理器v2.1"
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT_DIR / "config.json"
@@ -27,12 +27,185 @@ DEFAULT_RECENT_PROJECTS = 10
 PROVIDER_CLAUDE_DEFAULT = "Claude官方接口"
 PROVIDER_DEEPSEEK = "DeepSeek"
 PROVIDER_KIMI = "Kimi"
-PROVIDER_ZHIPU = "智谱GML"
+PROVIDER_ZHIPU = "智谱GLM"
 PROVIDER_QWEN = "阿里千问"
-PROVIDER_MINIMAX = "MINIMAX"
+PROVIDER_MINIMAX = "MiniMax"
 PROVIDER_XIAOMI_MIMO = "小米MiMo"
 PROVIDER_ARK_CODING = "方舟Coding Plan"
 PROVIDER_CLAUDE_RELAY = "Claude中转"
+
+CODEX_PROVIDER_OFFICIAL = "Codex官方接口"
+CODEX_PROVIDER_DEEPSEEK = "DeepSeek"
+CODEX_PROVIDER_KIMI = "Kimi"
+CODEX_PROVIDER_ZHIPU = "智谱GLM"
+CODEX_PROVIDER_QWEN = "阿里千问"
+CODEX_PROVIDER_MINIMAX = "MiniMax"
+CODEX_PROVIDER_XIAOMI_MIMO = "小米MiMo"
+CODEX_PROVIDER_ARK_CODING = "方舟Coding Plan"
+CODEX_PROVIDER_GPT_RELAY = "GPT中转"
+
+CODEX_PROTOCOL_OFFICIAL = "official"
+CODEX_PROTOCOL_CHAT_PROXY = "chat_proxy"
+CODEX_PROTOCOL_RESPONSES_DIRECT = "responses_direct"
+CODEX_API_KEY_ENV = "CC_MODEL_MANAGER_CODEX_API_KEY"
+
+CLAUDE_LAUNCH_TARGET_DEFAULT = "cli"
+CLAUDE_LAUNCH_TARGET_OPTIONS = (
+    ("cli", "启动Claude Code cli版"),
+    ("vscode", "启动vscode"),
+    ("upgrade", "升级Claude Code cli版"),
+)
+CODEX_LAUNCH_TARGET_DEFAULT = "desktop"
+CODEX_LAUNCH_TARGET_OPTIONS = (
+    ("desktop", "启动codex桌面版"),
+    ("cli", "启动codex cli版"),
+    ("vscode", "启动vscode"),
+    ("upgrade", "升级codex cli版"),
+)
+
+CODEX_PROVIDER_OPTIONS = [
+    CODEX_PROVIDER_OFFICIAL,
+    CODEX_PROVIDER_DEEPSEEK,
+    CODEX_PROVIDER_KIMI,
+    CODEX_PROVIDER_ZHIPU,
+    CODEX_PROVIDER_QWEN,
+    CODEX_PROVIDER_MINIMAX,
+    CODEX_PROVIDER_XIAOMI_MIMO,
+    CODEX_PROVIDER_ARK_CODING,
+    CODEX_PROVIDER_GPT_RELAY,
+]
+
+CODEX_PROVIDER_DEFAULTS = {
+    CODEX_PROVIDER_OFFICIAL: {
+        "base_url": "",
+        "models": (),
+        "default_model": "",
+        "protocol": CODEX_PROTOCOL_OFFICIAL,
+        "reasoning_options": (),
+        "default_reasoning_effort": "",
+    },
+    CODEX_PROVIDER_DEEPSEEK: {
+        "base_url": "https://api.deepseek.com",
+        "models": ("deepseek-v4-pro", "deepseek-v4-flash"),
+        "default_model": "deepseek-v4-pro",
+        "display_names": {
+            "deepseek-v4-pro": "DeepSeek V4 Pro",
+            "deepseek-v4-flash": "DeepSeek V4 Flash",
+        },
+        "context_window": 1_000_000,
+        "protocol": CODEX_PROTOCOL_CHAT_PROXY,
+        "reasoning_options": ("low", "medium", "high", "xhigh"),
+        "default_reasoning_effort": "high",
+    },
+    CODEX_PROVIDER_KIMI: {
+        "base_url": "https://api.moonshot.cn/v1",
+        "models": ("kimi-k2.6",),
+        "default_model": "kimi-k2.6",
+        "display_names": {"kimi-k2.6": "Kimi K2.6"},
+        "context_window": 256_000,
+        "protocol": CODEX_PROTOCOL_CHAT_PROXY,
+        "reasoning_options": (),
+        "default_reasoning_effort": "",
+    },
+    CODEX_PROVIDER_ZHIPU: {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "models": ("glm-5.1", "glm-5-turbo", "glm-4.5-air"),
+        "default_model": "glm-5.1",
+        "display_names": {
+            "glm-5.1": "GLM-5.1",
+            "glm-5-turbo": "GLM-5 Turbo",
+            "glm-4.5-air": "GLM-4.5 Air",
+        },
+        "context_window": 200_000,
+        "protocol": CODEX_PROTOCOL_CHAT_PROXY,
+        "reasoning_options": ("low", "medium", "high", "xhigh"),
+        "default_reasoning_effort": "high",
+    },
+    CODEX_PROVIDER_QWEN: {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": ("qwen3.6-flash", "qwen3.7-plus", "qwen3.7-max"),
+        "default_model": "qwen3.7-max",
+        "display_names": {
+            "qwen3.6-flash": "Qwen 3.6 Flash",
+            "qwen3.7-plus": "Qwen 3.7 Plus",
+            "qwen3.7-max": "Qwen 3.7 Max",
+        },
+        "context_windows": {
+            "qwen3.6-flash": 256_000,
+            "qwen3.7-plus": 1_000_000,
+            "qwen3.7-max": 1_000_000,
+        },
+        "protocol": CODEX_PROTOCOL_RESPONSES_DIRECT,
+        "provider_id": "qwen",
+        "provider_name": "阿里千问",
+        "reasoning_options": ("none", "minimal", "low", "medium", "high"),
+        "default_reasoning_effort": "medium",
+    },
+    CODEX_PROVIDER_MINIMAX: {
+        "base_url": "https://api.minimaxi.com/v1",
+        "models": ("MiniMax-M3",),
+        "default_model": "MiniMax-M3",
+        "display_names": {"MiniMax-M3": "MiniMax M3"},
+        "context_window": 512_000,
+        "protocol": CODEX_PROTOCOL_RESPONSES_DIRECT,
+        "provider_id": "minimax",
+        "provider_name": "MiniMax",
+        "reasoning_options": (),
+        "default_reasoning_effort": "",
+    },
+    CODEX_PROVIDER_XIAOMI_MIMO: {
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "models": ("mimo-v2.5", "mimo-v2.5-pro"),
+        "default_model": "mimo-v2.5-pro",
+        "display_names": {
+            "mimo-v2.5": "MiMo V2.5",
+            "mimo-v2.5-pro": "MiMo V2.5 Pro",
+        },
+        "context_window": 1_000_000,
+        "protocol": CODEX_PROTOCOL_CHAT_PROXY,
+        "reasoning_options": (),
+        "default_reasoning_effort": "",
+    },
+    CODEX_PROVIDER_ARK_CODING: {
+        "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "models": (
+            "doubao-seed-2.0-code",
+            "doubao-seed-2.0-pro",
+            "doubao-seed-2.0-lite",
+            "minimax-latest",
+            "glm-5.1",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "kimi-k2.6",
+        ),
+        "default_model": "doubao-seed-2.0-code",
+        "context_window": 256_000,
+        "protocol": CODEX_PROTOCOL_CHAT_PROXY,
+        "reasoning_options": (),
+        "default_reasoning_effort": "",
+    },
+    CODEX_PROVIDER_GPT_RELAY: {
+        "base_url": "",
+        "models": ("gpt-5.5",),
+        "default_model": "gpt-5.5",
+        "display_names": {"gpt-5.5": "GPT-5.5"},
+        "protocol": CODEX_PROTOCOL_RESPONSES_DIRECT,
+        "provider_id": "gpt_relay",
+        "provider_name": "GPT中转",
+        "reasoning_options": ("minimal", "low", "medium", "high", "xhigh"),
+        "default_reasoning_effort": "medium",
+    },
+}
+
+
+def get_codex_context_window(provider: str, model: str) -> int | None:
+    defaults = CODEX_PROVIDER_DEFAULTS[provider]
+    context_windows = defaults.get("context_windows")
+    if isinstance(context_windows, dict):
+        value = context_windows.get(model)
+        return int(value) if value is not None else None
+    value = defaults.get("context_window")
+    return int(value) if value is not None else None
 
 PROVIDER_OPTIONS = [
     PROVIDER_CLAUDE_DEFAULT,
@@ -66,16 +239,16 @@ class ProviderPreset:
     # Kimi 专用：ENABLE_TOOL_SEARCH 下拉框选项
     enable_tool_search_options: tuple[str, ...] = ("false",)
     enable_tool_search_default: str = "false"
-    # GML5 / MINIMAX 专用：是否显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 参数
+    # GLM5 / MINIMAX 专用：是否显示 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 参数
     show_disable_nonessential_traffic: bool = False
-    # GML5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 下拉框选项
+    # GLM5 / MINIMAX 专用：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 下拉框选项
     disable_nonessential_traffic_options: tuple[str, ...] = ("1",)
     disable_nonessential_traffic_default: str = "1"
-    # GML5 / MINIMAX 专用：是否显示 API_TIMEOUT_MS 参数
+    # GLM5 / MINIMAX 专用：是否显示 API_TIMEOUT_MS 参数
     show_api_timeout_ms: bool = False
-    # GML5 / MINIMAX 专用：API_TIMEOUT_MS 默认值
+    # GLM5 / MINIMAX 专用：API_TIMEOUT_MS 默认值
     api_timeout_ms_default: str = "3000000"
-    # 是否隐藏 CLAUDE_CODE_EFFORT_LEVEL（Kimi / GML5 / 阿里千问 / MINIMAX 不再显示该参数）
+    # 是否隐藏 CLAUDE_CODE_EFFORT_LEVEL（Kimi / GLM5 / 阿里千问 / MINIMAX 不再显示该参数）
     hide_effort_level: bool = False
     # 小米MiMo / 方舟Coding Plan 专用：是否显示 hasCompletedOnboarding 参数
     show_has_completed_onboarding: bool = False

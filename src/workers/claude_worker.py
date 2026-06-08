@@ -7,7 +7,6 @@ import os
 import subprocess
 import threading
 import time
-import webbrowser
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -43,6 +42,7 @@ class ClaudeWorker(QThread):
         self._stop_requested = False
         # 升级专用模式：为 True 时 run() 仅执行升级操作
         self.upgrade_only = upgrade_only
+        self.already_latest = False
         # 升级子进程句柄（用于中断升级）
         self._upgrade_proc: subprocess.Popen[str] | None = None
 
@@ -66,6 +66,15 @@ class ClaudeWorker(QThread):
         """
         self.status_signal.emit("正在检查 Claude Code 更新 ...")
         self.log_signal.emit("[SYSTEM] 正在检查 Claude Code 更新 ...")
+
+        installed = self.service.get_installed_package_version()
+        latest = self.service.get_latest_package_version()
+        if installed and latest and installed == latest:
+            self.already_latest = True
+            message = f"Claude Code 已是最新版本（{installed}），无须升级。"
+            self.status_signal.emit(message)
+            self.log_signal.emit(f"[SYSTEM] {message}")
+            return True
 
         command = self.service.build_upgrade_command()
         kwargs: dict = {
@@ -218,16 +227,17 @@ class ClaudeWorker(QThread):
                 return
 
             cwd, env, command = self.service.build_startup_context(self.config)
-            self.status_signal.emit(f"正在启动 Claude Code：{cwd}")
+            target_name = "Claude Code CLI"
+
+            self.status_signal.emit(f"正在启动 {target_name}：{cwd}")
             self.log_signal.emit(f"[SYSTEM] 工作目录：{cwd}")
             self.log_signal.emit(f"[SYSTEM] 启动命令：{' '.join(command)}")
 
             proc = self.process_manager.start(command=command, cwd=cwd, env=env)
-            self.status_signal.emit("Claude Code 已在独立终端中启动。")
-            self.log_signal.emit("[SYSTEM] Claude Code 已在独立终端中启动。")
-
+            self.status_signal.emit("Claude Code CLI 已在独立终端中启动。")
+            self.log_signal.emit("[SYSTEM] Claude Code CLI 已在独立终端中启动。")
             return_code = proc.wait()
-            self.status_signal.emit(f"Claude Code 已退出，返回码：{return_code}")
+            self.status_signal.emit(f"{target_name} 已退出，返回码：{return_code}")
             self.finished_signal.emit(return_code)
         except Exception as exc:
             self.logger.exception("启动 Claude Code 失败")
@@ -243,7 +253,6 @@ class ClaudeWorker(QThread):
         if self._upgrade_proc is not None and self._upgrade_proc.poll() is None:
             self._upgrade_proc.terminate()
             return
-        # 否则停止 Claude Code 进程
         if not self.process_manager.stop_soft():
             self.process_manager.stop_hard()
 
@@ -256,5 +265,4 @@ class ClaudeWorker(QThread):
             except Exception:
                 pass
             return
-        # 否则强制停止 Claude Code 进程
         self.process_manager.stop_hard()
