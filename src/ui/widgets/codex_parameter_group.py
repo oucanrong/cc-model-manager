@@ -27,6 +27,7 @@ from src.core.constants import (
     get_codex_context_window,
     get_codex_reasoning_defaults,
 )
+from src.ui.widgets.proxy_group import ProxyToggleGroup
 
 
 class CodexParameterGroup(QGroupBox):
@@ -45,6 +46,7 @@ class CodexParameterGroup(QGroupBox):
         for value, label in CODEX_LAUNCH_TARGET_OPTIONS:
             self.launch_target_combo.addItem(label, value)
         self.project_path_edit = QLineEdit()
+        self.proxy_toggles = ProxyToggleGroup()
         self.pick_btn = QPushButton("选择工作目录")
         self.pick_btn.setObjectName("pickProjectButton")
         self.pick_btn.clicked.connect(on_pick_project)
@@ -75,7 +77,7 @@ class CodexParameterGroup(QGroupBox):
         self._layout.setHorizontalSpacing(10)
         self._layout.setVerticalSpacing(10)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setRowStretch(7, 1)
+        self._layout.setRowStretch(8, 1)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.provider_label = QLabel("API供应商")
         self._layout.addWidget(self.provider_label, 0, 0)
@@ -95,8 +97,11 @@ class CodexParameterGroup(QGroupBox):
         self.launch_target_label = QLabel("启动目标")
         self._layout.addWidget(self.launch_target_label, 5, 0)
         self._layout.addWidget(self.launch_target_combo, 5, 1)
-        self._layout.addWidget(self.pick_btn, 6, 0)
-        self._layout.addWidget(self.project_path_edit, 6, 1)
+        self.proxy_label = QLabel("网络代理")
+        self._layout.addWidget(self.proxy_label, 6, 0)
+        self._layout.addWidget(self.proxy_toggles, 6, 1)
+        self._layout.addWidget(self.pick_btn, 7, 0)
+        self._layout.addWidget(self.project_path_edit, 7, 1)
         self.model_combo.currentTextChanged.connect(self._refresh_context_window)
         self.set_provider(self.provider_combo.currentText())
 
@@ -226,6 +231,7 @@ class CodexParameterGroup(QGroupBox):
             self.reasoning_combo,
             self.thinking_combo,
             self.launch_target_combo,
+            self.proxy_toggles,
             self.project_path_edit,
             self.pick_btn,
         ):
@@ -240,3 +246,7 @@ class CodexParameterGroup(QGroupBox):
         if index < 0:
             index = self.launch_target_combo.findData(CODEX_LAUNCH_TARGET_DEFAULT)
         self.launch_target_combo.setCurrentIndex(index)
+
+    def set_proxy_row_visible(self, visible: bool) -> None:
+        self.proxy_label.setVisible(visible)
+        self.proxy_toggles.setVisible(visible)

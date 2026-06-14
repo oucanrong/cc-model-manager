@@ -38,6 +38,7 @@ from src.core.constants import (
     PROVIDER_ZHIPU,
     get_provider_preset,
 )
+from src.ui.widgets.proxy_group import ProxyToggleGroup
 
 # 中转 provider 集合
 _RELAY_PROVIDERS = {PROVIDER_CLAUDE_RELAY}
@@ -169,6 +170,7 @@ class ParameterGroup(QGroupBox):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
         )
+        self.proxy_toggles = ProxyToggleGroup()
 
         self.project_path_edit = QLineEdit()
         self.project_path_edit.setMinimumHeight(26)
@@ -194,7 +196,7 @@ class ParameterGroup(QGroupBox):
         self._layout.setVerticalSpacing(10)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setColumnStretch(1, 1)
-        self._layout.setRowStretch(13, 1)
+        self._layout.setRowStretch(14, 1)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # 行 0：API供应商
@@ -257,9 +259,14 @@ class ParameterGroup(QGroupBox):
         self._layout.addWidget(self.launch_target_label, 11, 0)
         self._layout.addWidget(self.launch_target_combo, 11, 1)
 
-        # 行 12：工作目录
-        self._layout.addWidget(self.pick_btn, 12, 0)
-        self._layout.addWidget(self.project_path_edit, 12, 1)
+        # 行 12：代理启用
+        self.proxy_label = self._make_label("网络代理")
+        self._layout.addWidget(self.proxy_label, 12, 0)
+        self._layout.addWidget(self.proxy_toggles, 12, 1)
+
+        # 行 13：工作目录
+        self._layout.addWidget(self.pick_btn, 13, 0)
+        self._layout.addWidget(self.project_path_edit, 13, 1)
 
         self.setLayout(self._layout)
 
@@ -296,6 +303,7 @@ class ParameterGroup(QGroupBox):
         self.api_timeout_ms.setEnabled(enabled)
         self.has_completed_onboarding.setEnabled(enabled)
         self.launch_target_combo.setEnabled(enabled)
+        self.proxy_toggles.set_ui_enabled(enabled)
         self.pick_btn.setEnabled(enabled)
         self.project_path_edit.setEnabled(enabled)
 
@@ -519,3 +527,7 @@ class ParameterGroup(QGroupBox):
         if index < 0:
             index = self.launch_target_combo.findData(CLAUDE_LAUNCH_TARGET_DEFAULT)
         self.launch_target_combo.setCurrentIndex(index)
+
+    def set_proxy_row_visible(self, visible: bool) -> None:
+        self.proxy_label.setVisible(visible)
+        self.proxy_toggles.setVisible(visible)

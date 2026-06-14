@@ -59,7 +59,7 @@ class CodexConfigTests(unittest.TestCase):
             self.assertIn("codex", saved)
             self.assertEqual(
                 saved["codex"]["provider_settings"]["Kimi"]["model"],
-                "kimi-k2.6",
+                "kimi-k2.7-code",
             )
             self.assertEqual(
                 set(saved["codex"]["provider_settings"]),
@@ -162,9 +162,10 @@ class CodexConfigTests(unittest.TestCase):
             "doubao-seed-2.0-pro": 256_000,
             "doubao-seed-2.0-lite": 256_000,
             "minimax-latest": 512_000,
-            "glm-5.1": 200_000,
+            "glm-5.2[1m]": 1_000_000,
             "deepseek-v4-flash": 1_024_000,
             "deepseek-v4-pro": 1_024_000,
+            "kimi-k2.7-code": 256_000,
             "kimi-k2.6": 256_000,
         }
         for model, expected in ark_context_windows.items():
@@ -205,7 +206,8 @@ class CodexConfigTests(unittest.TestCase):
         for model in (
             "deepseek-v4-flash",
             "deepseek-v4-pro",
-            "glm-5.1",
+            "glm-5.2[1m]",
+            "kimi-k2.7-code",
             "kimi-k2.6",
         ):
             reasoning = get_codex_reasoning_defaults(
@@ -248,7 +250,7 @@ class CodexConfigTests(unittest.TestCase):
                 "doubao-seed-2.0-code"
             ].reasoning_effort = "low"
             ark.model_reasoning["deepseek-v4-pro"].thinking_enabled = False
-            ark.model_reasoning["glm-5.1"].thinking_enabled = False
+            ark.model_reasoning["glm-5.2[1m]"].thinking_enabled = False
             manager.save(config)
 
             loaded = manager.load().codex.provider_settings["方舟Coding Plan"]
@@ -262,7 +264,7 @@ class CodexConfigTests(unittest.TestCase):
                 loaded.model_reasoning["deepseek-v4-pro"].thinking_enabled,
             )
             self.assertFalse(
-                loaded.model_reasoning["glm-5.1"].thinking_enabled,
+                loaded.model_reasoning["glm-5.2[1m]"].thinking_enabled,
             )
             self.assertEqual(
                 loaded.model_reasoning["doubao-seed-2.0-pro"].reasoning_effort,
@@ -354,75 +356,39 @@ class CodexConfigTests(unittest.TestCase):
                 "ark-key",
             )
 
-    def test_each_provider_target_proxy_is_saved_and_reloaded_independently(self) -> None:
+    def test_global_proxy_settings_and_target_flags_are_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text("{}", encoding="utf-8")
             manager = ConfigManager(path)
             config = manager.load()
-
-            claude_proxies = {}
-            for provider_index, provider in enumerate(PROVIDER_OPTIONS, start=1):
-                for target_index, target in enumerate(("cli", "upgrade"), start=1):
-                    proxy = self._proxy_for_index(provider_index * 10 + target_index)
-                    config.provider_settings[provider].proxies[target] = proxy
-                    claude_proxies[(provider, target)] = proxy
-            codex_proxies = {}
-            for provider_index, provider in enumerate(
-                CODEX_PROVIDER_OPTIONS,
-                start=1,
-            ):
-                for target_index, target in enumerate(("cli", "upgrade"), start=1):
-                    proxy = self._proxy_for_index(
-                        100 + provider_index * 10 + target_index
-                    )
-                    config.codex.provider_settings[provider].proxies[target] = proxy
-                    codex_proxies[(provider, target)] = proxy
-            config.provider = PROVIDER_OPTIONS[0]
-            config.claude_launch_target = "cli"
-            config.proxy = claude_proxies[(config.provider, "cli")]
-            config.codex.launch_target = "cli"
-            config.codex.provider_settings[
-                config.codex.provider
-            ].proxy = codex_proxies[(config.codex.provider, "cli")]
+            config.proxy_settings = ProxyConfig(
+                http=ProxyItem(host="127.0.0.1", port="8001", auth="u:p"),
+                https=ProxyItem(host="127.0.0.1", port="8002"),
+                socks5=ProxyItem(host="127.0.0.1", port="8003"),
+            )
+            config.proxy_enabled["claude"]["cli"]["http"] = True
+            config.proxy_enabled["claude"]["upgrade"]["https"] = True
+            config.proxy_enabled["codex"]["cli"]["socks5"] = True
             manager.save(config)
 
             loaded = manager.load()
-
-            for (provider, target), proxy in claude_proxies.items():
-                self.assertEqual(
-                    loaded.provider_settings[provider].proxies[target],
-                    proxy,
-                )
-            for (provider, target), proxy in codex_proxies.items():
-                self.assertEqual(
-                    loaded.codex.provider_settings[provider].proxies[target],
-                    proxy,
-                )
-            for provider in PROVIDER_OPTIONS:
-                self.assertEqual(
-                    loaded.provider_settings[provider].proxies["vscode"],
-                    ProxyConfig(),
-                )
-            for provider in CODEX_PROVIDER_OPTIONS:
-                self.assertEqual(
-                    loaded.codex.provider_settings[provider].proxies["desktop"],
-                    ProxyConfig(),
-                )
-                self.assertEqual(
-                    loaded.codex.provider_settings[provider].proxies["vscode"],
-                    ProxyConfig(),
-                )
+            self.assertEqual(loaded.proxy_settings.http.host, "127.0.0.1")
+            self.assertEqual(loaded.proxy_settings.http.auth, "u:p")
+            self.assertTrue(loaded.proxy_enabled["claude"]["cli"]["http"])
+            self.assertTrue(loaded.proxy_enabled["claude"]["upgrade"]["https"])
+            self.assertTrue(loaded.proxy_enabled["codex"]["cli"]["socks5"])
 
             saved = json.loads(path.read_text(encoding="utf-8"))
-            self.assertNotIn(
-                "proxy",
-                saved["provider_settings"][PROVIDER_OPTIONS[0]],
-            )
-            self.assertNotIn(
-                "proxy",
-                saved["codex"]["provider_settings"][CODEX_PROVIDER_OPTIONS[0]],
-            )
+            self.assertIn("proxy_settings", saved)
+            self.assertIn("proxy_enabled", saved)
+            for provider in PROVIDER_OPTIONS:
+                self.assertNotIn("proxies", saved["provider_settings"][provider])
+            for provider in CODEX_PROVIDER_OPTIONS:
+                self.assertNotIn(
+                    "proxies",
+                    saved["codex"]["provider_settings"][provider],
+                )
 
     @staticmethod
     def _proxy_for_index(index: int) -> ProxyConfig:

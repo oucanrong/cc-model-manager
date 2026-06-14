@@ -48,18 +48,28 @@ class ProxyConfig:
     socks5: ProxyItem = field(default_factory=ProxyItem)
 
 
-def create_claude_target_proxies() -> dict[str, ProxyConfig]:
+def create_proxy_enabled() -> dict[str, dict[str, dict[str, bool]]]:
+    def targets(options) -> dict[str, dict[str, bool]]:
+        return {
+            target: {"http": False, "https": False, "socks5": False}
+            for target, _label in options
+        }
+
     return {
-        target: ProxyConfig()
-        for target, _label in CLAUDE_LAUNCH_TARGET_OPTIONS
+        "claude": targets(CLAUDE_LAUNCH_TARGET_OPTIONS),
+        "codex": targets(CODEX_LAUNCH_TARGET_OPTIONS),
     }
 
 
-def create_codex_target_proxies() -> dict[str, ProxyConfig]:
-    return {
-        target: ProxyConfig()
-        for target, _label in CODEX_LAUNCH_TARGET_OPTIONS
-    }
+def build_active_proxy(
+    proxy_settings: ProxyConfig,
+    enabled: dict[str, bool],
+) -> ProxyConfig:
+    result = copy.deepcopy(proxy_settings)
+    result.http.enabled = bool(enabled.get("http", False))
+    result.https.enabled = bool(enabled.get("https", False))
+    result.socks5.enabled = bool(enabled.get("socks5", False))
+    return result
 
 
 @dataclass
@@ -79,7 +89,6 @@ class ProviderSettings:
     api_timeout_ms: str = "3000000"
     # 小米MiMo / 方舟Coding Plan 专用
     has_completed_onboarding: str = "true"
-    proxies: dict[str, ProxyConfig] = field(default_factory=create_claude_target_proxies)
     proxy: ProxyConfig = field(default_factory=ProxyConfig, repr=False, compare=False)
 
 
@@ -99,7 +108,6 @@ class CodexProviderSettings:
     model_reasoning: dict[str, CodexModelReasoningSettings] = field(
         default_factory=dict
     )
-    proxies: dict[str, ProxyConfig] = field(default_factory=create_codex_target_proxies)
     proxy: ProxyConfig = field(default_factory=ProxyConfig, repr=False, compare=False)
 
 
@@ -159,6 +167,10 @@ class AppConfig:
     has_completed_onboarding: str = "true"
     project_path: str = ""
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
+    proxy_settings: ProxyConfig = field(default_factory=ProxyConfig)
+    proxy_enabled: dict[str, dict[str, dict[str, bool]]] = field(
+        default_factory=create_proxy_enabled
+    )
     recent_projects: list[str] = field(default_factory=list)
     vscode_path: str = ""
     provider_settings: dict[str, ProviderSettings] = field(default_factory=dict)
@@ -184,13 +196,6 @@ class ConfigManager:
 
     def save(self, config: AppConfig) -> None:
         self._flush_active_provider(config)
-        codex_setting = config.codex.provider_settings.get(config.codex.provider)
-        if codex_setting is not None:
-            codex_setting.proxies[config.codex.launch_target] = copy.deepcopy(
-                codex_setting.proxy
-            )
-            codex_setting.proxies["desktop"] = ProxyConfig()
-            codex_setting.proxies["vscode"] = ProxyConfig()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps(self._to_dict(config), ensure_ascii=False, indent=2),
@@ -224,8 +229,9 @@ class ConfigManager:
         config.default_haiku_model = ps.default_haiku_model or preset.default_haiku_model_default
         config.subagent_model = ps.subagent_model or preset.subagent_model_default
         config.effort_level = ps.effort_level or preset.effort_level_default
-        config.proxy = copy.deepcopy(
-            ps.proxies.get(config.claude_launch_target, ProxyConfig())
+        config.proxy = build_active_proxy(
+            config.proxy_settings,
+            config.proxy_enabled["claude"][config.claude_launch_target],
         )
         ps.proxy = copy.deepcopy(config.proxy)
         # Kimi 专用参数
@@ -240,10 +246,6 @@ class ConfigManager:
         """将 config 顶层字段写回 provider_settings 中当前 provider 的条目。"""
         token = config.token.strip()
         config.auth_tokens[config.provider] = token
-        existing = config.provider_settings.get(
-            config.provider,
-            ProviderSettings(),
-        )
         ps = ProviderSettings(
             base_url=config.base_url,
             token=token,
@@ -257,10 +259,7 @@ class ConfigManager:
             disable_nonessential_traffic=config.disable_nonessential_traffic,
             api_timeout_ms=config.api_timeout_ms,
             has_completed_onboarding=config.has_completed_onboarding,
-            proxies=copy.deepcopy(existing.proxies),
         )
-        ps.proxies[config.claude_launch_target] = copy.deepcopy(config.proxy)
-        ps.proxies["vscode"] = ProxyConfig()
         ps.proxy = copy.deepcopy(config.proxy)
         config.provider_settings[config.provider] = ps
 
@@ -273,15 +272,6 @@ class ConfigManager:
         auth_tokens = {p: str(data.get("auth_tokens", {}).get(p, "") or "") for p in PROVIDER_OPTIONS}
         provider_settings = {}
         for p, v in (data.get("provider_settings") or {}).items():
-            proxies = create_claude_target_proxies()
-            for target, proxy_data in (v.get("proxies") or {}).items():
-                if target not in proxies or target == "vscode":
-                    continue
-                proxies[target] = ProxyConfig(
-                    http=ProxyItem(**(proxy_data.get("http") or {})),
-                    https=ProxyItem(**(proxy_data.get("https") or {})),
-                    socks5=ProxyItem(**(proxy_data.get("socks5") or {})),
-                )
             provider_settings[p] = ProviderSettings(
                 base_url=str(v.get("base_url", "") or ""),
                 token=str(v.get("token", "") or ""),
@@ -295,7 +285,6 @@ class ConfigManager:
                 disable_nonessential_traffic=str(v.get("disable_nonessential_traffic", "") or "1"),
                 api_timeout_ms=str(v.get("api_timeout_ms", "") or "3000000"),
                 has_completed_onboarding=str(v.get("has_completed_onboarding", "") or "true"),
-                proxies=proxies,
             )
         # 为 JSON 中不存在的 provider 初始化默认条目，每个 provider 获得独立的 ProxyConfig
         for p in PROVIDER_OPTIONS:
@@ -328,12 +317,30 @@ class ConfigManager:
         codex_provider = str(codex_data.get("provider", CODEX_PROVIDER_OFFICIAL) or "")
         if codex_provider not in CODEX_PROVIDER_OPTIONS:
             codex_provider = CODEX_PROVIDER_OFFICIAL
+        proxy_settings_data = data.get("proxy_settings") or {}
+        proxy_settings = ProxyConfig(
+            http=ProxyItem(**(proxy_settings_data.get("http") or {})),
+            https=ProxyItem(**(proxy_settings_data.get("https") or {})),
+            socks5=ProxyItem(**(proxy_settings_data.get("socks5") or {})),
+        )
+        for item in (proxy_settings.http, proxy_settings.https, proxy_settings.socks5):
+            item.enabled = False
+        proxy_enabled = create_proxy_enabled()
+        raw_proxy_enabled = data.get("proxy_enabled") or {}
+        for product, targets in proxy_enabled.items():
+            raw_targets = raw_proxy_enabled.get(product) or {}
+            for target, protocols in targets.items():
+                raw_protocols = raw_targets.get(target) or {}
+                for protocol in protocols:
+                    protocols[protocol] = bool(raw_protocols.get(protocol, False))
         codex_settings: dict[str, CodexProviderSettings] = {}
         raw_codex_settings = codex_data.get("provider_settings") or {}
         for provider_name in CODEX_PROVIDER_OPTIONS:
             raw = raw_codex_settings.get(provider_name) or {}
             defaults = CODEX_PROVIDER_DEFAULTS[provider_name]
             model = str(raw.get("model", "") or defaults["default_model"])
+            if model not in defaults["models"]:
+                model = str(defaults["default_model"])
             selected_defaults = get_codex_reasoning_defaults(provider_name, model)
             reasoning_options = selected_defaults["reasoning_options"]
             raw_reasoning_effort = str(
@@ -401,15 +408,6 @@ class ConfigManager:
                     if "thinking_enabled" in raw
                     else bool(selected_defaults["default_thinking_enabled"])
                 )
-            proxies = create_codex_target_proxies()
-            for target, proxy_data in (raw.get("proxies") or {}).items():
-                if target not in proxies or target in {"desktop", "vscode"}:
-                    continue
-                proxies[target] = ProxyConfig(
-                    http=ProxyItem(**(proxy_data.get("http") or {})),
-                    https=ProxyItem(**(proxy_data.get("https") or {})),
-                    socks5=ProxyItem(**(proxy_data.get("socks5") or {})),
-                )
             codex_settings[provider_name] = CodexProviderSettings(
                 base_url=str(raw.get("base_url", "") or defaults["base_url"]),
                 token=str(raw.get("token", "") or ""),
@@ -417,8 +415,10 @@ class ConfigManager:
                 reasoning_effort=reasoning_effort if reasoning_options else "",
                 thinking_enabled=thinking_enabled,
                 model_reasoning=model_reasoning,
-                proxies=proxies,
-                proxy=copy.deepcopy(proxies[codex_launch_target]),
+                proxy=build_active_proxy(
+                    proxy_settings,
+                    proxy_enabled["codex"][codex_launch_target],
+                ),
             )
 
         return AppConfig(
@@ -440,7 +440,12 @@ class ConfigManager:
             project_path=str(data.get("project_path", "") or ""),
             # 顶层 proxy 始终初始化为空——后续由 _sync_active_provider 从
             # provider_settings[provider] 中深拷贝加载当前 provider 的真实代理配置
-            proxy=ProxyConfig(),
+            proxy=build_active_proxy(
+                proxy_settings,
+                proxy_enabled["claude"][claude_launch_target],
+            ),
+            proxy_settings=proxy_settings,
+            proxy_enabled=proxy_enabled,
             recent_projects=data.get("recent_projects", []) or [],
             vscode_path=str(data.get("vscode_path", "") or ""),
             provider_settings=provider_settings,
@@ -495,14 +500,6 @@ class ConfigManager:
                 "disable_nonessential_traffic": ps.disable_nonessential_traffic,
                 "api_timeout_ms": ps.api_timeout_ms,
                 "has_completed_onboarding": ps.has_completed_onboarding,
-                "proxies": {
-                    target: {
-                        "http": asdict(proxy.http),
-                        "https": asdict(proxy.https),
-                        "socks5": asdict(proxy.socks5),
-                    }
-                    for target, proxy in ps.proxies.items()
-                },
             }
         codex_settings = {}
         for provider_name in CODEX_PROVIDER_OPTIONS:
@@ -526,14 +523,6 @@ class ConfigManager:
                     model: asdict(reasoning)
                     for model, reasoning in setting.model_reasoning.items()
                 },
-                "proxies": {
-                    target: {
-                        "http": asdict(proxy.http),
-                        "https": asdict(proxy.https),
-                        "socks5": asdict(proxy.socks5),
-                    }
-                    for target, proxy in setting.proxies.items()
-                },
             }
 
         return {
@@ -543,6 +532,24 @@ class ConfigManager:
             "project_path": config.project_path,
             "recent_projects": config.recent_projects[:DEFAULT_RECENT_PROJECTS],
             "vscode_path": config.vscode_path,
+            "proxy_settings": {
+                "http": {
+                    "host": config.proxy_settings.http.host,
+                    "port": config.proxy_settings.http.port,
+                    "auth": config.proxy_settings.http.auth,
+                },
+                "https": {
+                    "host": config.proxy_settings.https.host,
+                    "port": config.proxy_settings.https.port,
+                    "auth": config.proxy_settings.https.auth,
+                },
+                "socks5": {
+                    "host": config.proxy_settings.socks5.host,
+                    "port": config.proxy_settings.socks5.port,
+                    "auth": config.proxy_settings.socks5.auth,
+                },
+            },
+            "proxy_enabled": config.proxy_enabled,
             "provider_settings": ps_dict,
             "codex": {
                 "provider": config.codex.provider,

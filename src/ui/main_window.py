@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-import copy
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer, QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import (
     QCloseEvent,
     QDesktopServices,
@@ -39,8 +38,8 @@ from src.core.config_manager import (
     CodexProviderSettings,
     ConfigManager,
     ProxyConfig,
-    ProxyItem,
     ProviderSettings,
+    build_active_proxy,
 )
 from src.core.constants import (
     APP_NAME,
@@ -59,7 +58,6 @@ from src.ui.widgets.auth_settings_dialog import AuthSettingsDialog
 from src.ui.widgets.codex_parameter_group import CodexParameterGroup
 from src.ui.widgets.log_console import LogConsole
 from src.ui.widgets.parameter_group import ParameterGroup
-from src.ui.widgets.proxy_group import ProxyGroup
 from src.workers.claude_worker import ClaudeWorker
 from src.workers.codex_worker import CodexWorker
 from src.services.codex_config_service import CodexConfigService
@@ -316,7 +314,7 @@ class MainWindow(QMainWindow):
         codex_root.setContentsMargins(12, 12, 12, 12)
 
         self.parameter_group = ParameterGroup(on_pick_project=self.pick_project)
-        self.proxy_group = ProxyGroup()
+        self.proxy_group = self.parameter_group.proxy_toggles
         self.log_console = LogConsole()
         self.status_label = QLabel("就绪")
         self.status_bar = QStatusBar()
@@ -371,7 +369,6 @@ class MainWindow(QMainWindow):
             button_row.addWidget(btn)
 
         claude_root.addWidget(self.parameter_group)
-        claude_root.addWidget(self.proxy_group)
         claude_root.addWidget(QLabel("日志输出"))
         claude_root.addWidget(self.log_console, 1)
         # 进度条区域
@@ -382,7 +379,7 @@ class MainWindow(QMainWindow):
         claude_root.setStretchFactor(self.log_console, 1)
 
         self.codex_parameter_group = CodexParameterGroup(self.pick_codex_project)
-        self.codex_proxy_group = ProxyGroup()
+        self.codex_proxy_group = self.codex_parameter_group.proxy_toggles
         self.codex_log_console = LogConsole()
         self.codex_status_label = QLabel("就绪")
         self.codex_start_btn = QPushButton("启动")
@@ -418,7 +415,6 @@ class MainWindow(QMainWindow):
             button.setMinimumWidth(105)
             codex_buttons.addWidget(button)
         codex_root.addWidget(self.codex_parameter_group)
-        codex_root.addWidget(self.codex_proxy_group)
         codex_root.addWidget(QLabel("日志输出"))
         codex_root.addWidget(self.codex_log_console, 1)
         codex_root.addWidget(self.codex_status_label)
@@ -456,9 +452,6 @@ class MainWindow(QMainWindow):
             group.setMinimumHeight(0)
             group.setMaximumHeight(16777215)
             group.layout().activate()
-        target_height = max(group.sizeHint().height() for group in groups)
-        for group in groups:
-            group.setFixedHeight(target_height)
 
     def _apply_fonts(self) -> None:
         app = QApplication.instance()
@@ -471,14 +464,18 @@ class MainWindow(QMainWindow):
         self._loading = True
         try:
             self.parameter_group.apply_config(self.config)
-            self.proxy_group.apply_config(self.config)
+            self.proxy_group.apply_config(
+                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
+            )
             self.codex_parameter_group.apply_config(self.config.codex)
             codex_setting = self.config.codex.provider_settings[self.config.codex.provider]
-            codex_setting.proxy = copy.deepcopy(
-                codex_setting.proxies[self.config.codex.launch_target]
+            codex_setting.proxy = build_active_proxy(
+                self.config.proxy_settings,
+                self.config.proxy_enabled["codex"][self.config.codex.launch_target],
             )
-            codex_proxy_config = AppConfig(proxy=codex_setting.proxy)
-            self.codex_proxy_group.apply_config(codex_proxy_config)
+            self.codex_proxy_group.apply_config(
+                self.config.proxy_enabled["codex"][self.config.codex.launch_target]
+            )
             self.config.token = self.config.auth_tokens.get(self.config.provider, "").strip()
         finally:
             self._loading = False
@@ -507,12 +504,12 @@ class MainWindow(QMainWindow):
         pg.api_timeout_ms.textChanged.connect(self._schedule_autosave)
         pg.has_completed_onboarding.currentTextChanged.connect(self._schedule_autosave)
 
-        for row in (self.proxy_group.http, self.proxy_group.https, self.proxy_group.socks5):
-            row.enabled.toggled.connect(self._schedule_autosave)
-            row.host.textChanged.connect(self._schedule_autosave)
-            row.port.textChanged.connect(self._schedule_autosave)
-            row.username.textChanged.connect(self._schedule_autosave)
-            row.password.textChanged.connect(self._schedule_autosave)
+        for checkbox in (
+            self.proxy_group.http,
+            self.proxy_group.https,
+            self.proxy_group.socks5,
+        ):
+            checkbox.toggled.connect(self._schedule_autosave)
 
         cpg = self.codex_parameter_group
         cpg.provider_combo.currentTextChanged.connect(self._handle_codex_provider_change)
@@ -525,16 +522,12 @@ class MainWindow(QMainWindow):
             self._handle_codex_launch_target_change
         )
         cpg.project_path_edit.textChanged.connect(self._schedule_autosave)
-        for row in (
+        for checkbox in (
             self.codex_proxy_group.http,
             self.codex_proxy_group.https,
             self.codex_proxy_group.socks5,
         ):
-            row.enabled.toggled.connect(self._schedule_autosave)
-            row.host.textChanged.connect(self._schedule_autosave)
-            row.port.textChanged.connect(self._schedule_autosave)
-            row.username.textChanged.connect(self._schedule_autosave)
-            row.password.textChanged.connect(self._schedule_autosave)
+            checkbox.toggled.connect(self._schedule_autosave)
 
     def _refresh_status(self) -> None:
         self.status_label.setText(
@@ -549,15 +542,20 @@ class MainWindow(QMainWindow):
         if self._loading:
             return
         old_target = self.config.claude_launch_target
-        self._sync_config_from_ui()
-        setting = self.config.provider_settings[self.config.provider]
-        setting.proxies[old_target] = copy.deepcopy(self.config.proxy)
+        self.config.proxy_enabled["claude"][old_target] = (
+            self.proxy_group.collect_config_data()
+        )
         new_target = self.parameter_group.current_launch_target()
         self.config.claude_launch_target = new_target
-        self.config.proxy = copy.deepcopy(setting.proxies[new_target])
+        self.config.proxy = build_active_proxy(
+            self.config.proxy_settings,
+            self.config.proxy_enabled["claude"][new_target],
+        )
         self._loading = True
         try:
-            self.proxy_group.apply_config(self.config)
+            self.proxy_group.apply_config(
+                self.config.proxy_enabled["claude"][new_target]
+            )
         finally:
             self._loading = False
         self._sync_claude_target_state()
@@ -578,20 +576,27 @@ class MainWindow(QMainWindow):
     def _sync_claude_target_state(self) -> None:
         is_vscode = self.parameter_group.current_launch_target() == "vscode"
         self.start_btn.setEnabled(not is_vscode)
-        self.proxy_group.set_ui_enabled(not is_vscode)
+        self.parameter_group.set_proxy_row_visible(not is_vscode)
 
     def _handle_codex_launch_target_change(self) -> None:
         if self._loading:
             return
         old_target = self.config.codex.launch_target
-        self._sync_codex_config_from_ui(proxy_target_override=old_target)
+        self.config.proxy_enabled["codex"][old_target] = (
+            self.codex_proxy_group.collect_config_data()
+        )
         new_target = self.codex_parameter_group.current_launch_target()
         self.config.codex.launch_target = new_target
         setting = self.config.codex.provider_settings[self.config.codex.provider]
-        setting.proxy = copy.deepcopy(setting.proxies[new_target])
+        setting.proxy = build_active_proxy(
+            self.config.proxy_settings,
+            self.config.proxy_enabled["codex"][new_target],
+        )
         self._loading = True
         try:
-            self.codex_proxy_group.apply_config(AppConfig(proxy=setting.proxy))
+            self.codex_proxy_group.apply_config(
+                self.config.proxy_enabled["codex"][new_target]
+            )
         finally:
             self._loading = False
         self._sync_codex_target_state()
@@ -612,7 +617,7 @@ class MainWindow(QMainWindow):
     def _sync_codex_target_state(self) -> None:
         target = self.codex_parameter_group.current_launch_target()
         self.codex_start_btn.setEnabled(target != "vscode")
-        self.codex_proxy_group.set_ui_enabled(
+        self.codex_parameter_group.set_proxy_row_visible(
             target not in {"desktop", "vscode"}
         )
 
@@ -631,10 +636,13 @@ class MainWindow(QMainWindow):
         try:
             self.codex_parameter_group.apply_config(self.config.codex)
             setting = self.config.codex.provider_settings[provider]
-            setting.proxy = copy.deepcopy(
-                setting.proxies[self.config.codex.launch_target]
+            setting.proxy = build_active_proxy(
+                self.config.proxy_settings,
+                self.config.proxy_enabled["codex"][self.config.codex.launch_target],
             )
-            self.codex_proxy_group.apply_config(AppConfig(proxy=setting.proxy))
+            self.codex_proxy_group.apply_config(
+                self.config.proxy_enabled["codex"][self.config.codex.launch_target]
+            )
         finally:
             self._loading = False
         self._sync_parameter_group_layouts()
@@ -703,7 +711,9 @@ class MainWindow(QMainWindow):
         try:
             self.config_manager._sync_active_provider(self.config)
             self.parameter_group.apply_config(self.config)
-            self.proxy_group.apply_config(self.config)
+            self.proxy_group.apply_config(
+                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
+            )
         finally:
             self._loading = False
 
@@ -714,8 +724,6 @@ class MainWindow(QMainWindow):
 
     def _sync_config_from_ui(self) -> AppConfig:
         data = self.parameter_group.collect_config_data()
-        proxy = self.proxy_group.collect_config_data()
-
         self.config.provider = data["provider"]
         self.config.base_url = data["base_url"]
         self.config.token = self.config.auth_tokens.get(self.config.provider, "").strip()
@@ -733,9 +741,13 @@ class MainWindow(QMainWindow):
         self.config.api_timeout_ms = data["api_timeout_ms"]
         self.config.has_completed_onboarding = data["has_completed_onboarding"]
 
-        self.config.proxy.http = ProxyItem(**proxy["http"])
-        self.config.proxy.https = ProxyItem(**proxy["https"])
-        self.config.proxy.socks5 = ProxyItem(**proxy["socks5"])
+        self.config.proxy_enabled["claude"][data["launch_target"]] = (
+            self.proxy_group.collect_config_data()
+        )
+        self.config.proxy = build_active_proxy(
+            self.config.proxy_settings,
+            self.config.proxy_enabled["claude"][data["launch_target"]],
+        )
 
         if self.config.project_path.strip():
             history = [p for p in self.config.recent_projects if p != self.config.project_path]
@@ -757,6 +769,7 @@ class MainWindow(QMainWindow):
             self.config.provider_settings,
             self.config.codex.provider_settings,
             self,
+            proxy_settings=self.config.proxy_settings,
         )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
@@ -780,6 +793,7 @@ class MainWindow(QMainWindow):
             existing.base_url = new_setting.base_url
             existing.token = new_setting.token
             self.config.codex.provider_settings[provider_key] = existing
+        self.config.proxy_settings = dialog.get_proxy_settings()
 
         # 若当前激活的 provider 被修改，更新快捷字段
         if self.config.provider in new_settings:
@@ -825,16 +839,14 @@ class MainWindow(QMainWindow):
             model = self.codex_parameter_group.model_combo.currentText()
             setting.model = model
             self._store_codex_reasoning_state(provider, setting, model)
-        proxy_data = self.codex_proxy_group.collect_config_data()
-        setting.proxy = ProxyConfig(
-            http=ProxyItem(**proxy_data["http"]),
-            https=ProxyItem(**proxy_data["https"]),
-            socks5=ProxyItem(**proxy_data["socks5"]),
-        )
         proxy_target = proxy_target_override or self.config.codex.launch_target
-        setting.proxies[proxy_target] = copy.deepcopy(setting.proxy)
-        setting.proxies["desktop"] = ProxyConfig()
-        setting.proxies["vscode"] = ProxyConfig()
+        self.config.proxy_enabled["codex"][proxy_target] = (
+            self.codex_proxy_group.collect_config_data()
+        )
+        setting.proxy = build_active_proxy(
+            self.config.proxy_settings,
+            self.config.proxy_enabled["codex"][proxy_target],
+        )
         self.config.codex.provider = self.codex_parameter_group.provider_combo.currentText()
         self.config.codex.launch_target = (
             self.codex_parameter_group.current_launch_target()
@@ -935,7 +947,9 @@ class MainWindow(QMainWindow):
             # 同步当前 provider 的 top-level 字段（用预设默认值填充空字段，恢复保留的 base_url/token）
             self.config_manager._sync_active_provider(self.config)
             self.parameter_group.apply_config(self.config)
-            self.proxy_group.apply_config(self.config)
+            self.proxy_group.apply_config(
+                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
+            )
             self.log_console.clear_logs()
             self.config_manager.save(self.config)
         finally:
@@ -959,17 +973,21 @@ class MainWindow(QMainWindow):
                 thinking_enabled=bool(reasoning["default_thinking_enabled"]),
             )
         self._load_codex_reasoning_state(provider, current, current.model)
-        current.proxies = {
-            target: ProxyConfig()
-            for target in current.proxies
-        }
+        for target in self.config.proxy_enabled["codex"]:
+            self.config.proxy_enabled["codex"][target] = {
+                "http": False,
+                "https": False,
+                "socks5": False,
+            }
         current.proxy = ProxyConfig()
         self.config.codex.launch_target = "desktop"
         self.config.codex.project_path = ""
         self._loading = True
         try:
             self.codex_parameter_group.apply_config(self.config.codex)
-            self.codex_proxy_group.apply_config(AppConfig(proxy=current.proxy))
+            self.codex_proxy_group.apply_config(
+                self.config.proxy_enabled["codex"]["desktop"]
+            )
             self.codex_log_console.clear_logs()
         finally:
             self._loading = False
@@ -982,7 +1000,7 @@ class MainWindow(QMainWindow):
         调用 ProxyGroup.validate() 校验代理配置。
         校验失败时弹窗提示用户，返回 False；通过返回 True。
         """
-        ok, msg = self.proxy_group.validate()
+        ok, msg = self.proxy_group.validate(self.config.proxy_settings)
         if not ok:
             _show_info_dialog(self, "代理配置不完整", msg)
         return ok
@@ -993,12 +1011,7 @@ class MainWindow(QMainWindow):
         若代理为空，弹窗提示用户确认后继续启动。
         返回 True 表示可以继续启动，False 表示用户取消。
         """
-        proxy = self.proxy_group
-        has_proxy = (
-            (proxy.http.enabled.isChecked() and proxy.http.host.text().strip())
-            or (proxy.https.enabled.isChecked() and proxy.https.host.text().strip())
-            or (proxy.socks5.enabled.isChecked() and proxy.socks5.host.text().strip())
-        )
+        has_proxy = any(self.proxy_group.collect_config_data().values())
         if has_proxy:
             return True
 
@@ -1209,7 +1222,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "校验失败", "项目目录不存在或不是有效目录。")
             return
         if launch_target != "desktop":
-            ok, message = self.codex_proxy_group.validate()
+            ok, message = self.codex_proxy_group.validate(self.config.proxy_settings)
             if not ok:
                 _show_info_dialog(self, "代理配置不完整", message)
                 return
@@ -1262,7 +1275,7 @@ class MainWindow(QMainWindow):
             return
         provider = self.config.codex.provider
         setting = self.config.codex.provider_settings[provider]
-        ok, message = self.codex_proxy_group.validate()
+        ok, message = self.codex_proxy_group.validate(self.config.proxy_settings)
         if not ok:
             _show_info_dialog(self, "代理配置不完整", message)
             return
@@ -1299,8 +1312,8 @@ class MainWindow(QMainWindow):
 
     def _codex_has_proxy(self) -> bool:
         return any(
-            row.enabled.isChecked() and row.host.text().strip()
-            for row in (
+            checkbox.isChecked()
+            for checkbox in (
                 self.codex_proxy_group.http,
                 self.codex_proxy_group.https,
                 self.codex_proxy_group.socks5,
@@ -1338,7 +1351,10 @@ class MainWindow(QMainWindow):
                 self.codex_status_label.setText(message)
                 _show_info_dialog(self, "无需升级", message)
             else:
-                self.codex_status_label.setText("Codex CLI 升级流程结束。")
+                message = "Codex CLI 升级完成。"
+                self.codex_status_label.setText(message)
+                if return_code == 0:
+                    _show_info_dialog(self, "升级完成", message)
         else:
             target_name = (
                 {
@@ -1469,7 +1485,10 @@ class MainWindow(QMainWindow):
                 self.status_label.setText(message)
                 _show_info_dialog(self, "无需升级", message)
             else:
-                self.status_label.setText("Claude Code 升级流程结束。")
+                message = "Claude Code 升级完成。"
+                self.status_label.setText(message)
+                if return_code == 0:
+                    _show_info_dialog(self, "升级完成", message)
         else:
             target_name = "Claude Code CLI"
             self.status_label.setText(f"{target_name} 已退出，返回码：{return_code}")
@@ -1523,6 +1542,9 @@ class MainWindow(QMainWindow):
 def run_app() -> None:
     import sys
 
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     window = MainWindow()

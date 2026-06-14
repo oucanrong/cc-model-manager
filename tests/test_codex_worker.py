@@ -91,7 +91,8 @@ class CodexWorkerTests(unittest.TestCase):
         cases = (
             ("doubao-seed-2.0-code", "medium", False, "effort"),
             ("deepseek-v4-pro", "", False, "toggle"),
-            ("glm-5.1", "", False, "toggle"),
+            ("glm-5.2[1m]", "", False, "toggle"),
+            ("kimi-k2.7-code", "", True, "toggle"),
             ("kimi-k2.6", "", True, "toggle"),
             ("minimax-latest", "", False, "none"),
         )

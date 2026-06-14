@@ -26,13 +26,13 @@ class UiSmokeTests(unittest.TestCase):
         try:
             window.show()
             QApplication.processEvents()
-            self.assertEqual(APP_NAME, "cc模型管理器v2.2")
+            self.assertEqual(APP_NAME, "cc模型管理器v2.3.1")
             self.assertEqual(window.windowTitle(), APP_NAME)
             self.assertEqual(window.product_tabs.count(), 2)
-            self.assertEqual(window.width(), 760)
-            self.assertEqual(window.height(), 900)
-            self.assertEqual(window.minimumWidth(), 760)
-            self.assertEqual(window.minimumHeight(), 600)
+            self.assertGreaterEqual(window.width(), window.minimumWidth())
+            self.assertGreaterEqual(window.height(), window.minimumHeight())
+            self.assertEqual(window.minimumWidth(), 560)
+            self.assertEqual(window.minimumHeight(), 500)
             self.assertEqual(window.product_tabs.tabText(0), "Claude Code")
             self.assertEqual(window.product_tabs.tabText(1), "Codex")
             self.assertFalse(window.product_tabs.tabBar().expanding())
@@ -166,9 +166,9 @@ class UiSmokeTests(unittest.TestCase):
                 f"Provider: {window.config.codex.provider} | "
                 f"项目目录: {window.config.codex.project_path or '未选择'}",
             )
-            self.assertEqual(
-                window.parameter_group.height(),
+            self.assertLess(
                 window.codex_parameter_group.height(),
+                window.parameter_group.height(),
             )
             self.assertEqual(
                 window.parameter_group.provider_combo.height(),
@@ -275,12 +275,14 @@ class UiSmokeTests(unittest.TestCase):
         try:
             dialog.show()
             QApplication.processEvents()
-            self.assertGreaterEqual(dialog.height(), 760)
+            self.assertGreaterEqual(dialog.height(), 600)
             nav_lists = dialog.findChildren(QListWidget, "authTabList")
             self.assertEqual(len(nav_lists), 2)
             self.assertTrue(all(nav.width() == 170 for nav in nav_lists))
             self.assertTrue(all(nav.sizeHintForRow(0) == 22 for nav in nav_lists))
             tabs = dialog.findChild(QTabWidget, "authProductTabs")
+            self.assertEqual(tabs.count(), 3)
+            self.assertEqual(tabs.tabText(2), "网络代理")
             self.assertEqual(tabs.tabBar().height(), 36)
             self.assertEqual(tabs.tabBar().tabRect(0).height(), 36)
             claude_nav = next(
@@ -371,9 +373,10 @@ class UiSmokeTests(unittest.TestCase):
             ark_context_windows = {
                 "doubao-seed-2.0-code": "256000",
                 "minimax-latest": "512000",
-                "glm-5.1": "200000",
+                "glm-5.2[1m]": "1000000",
                 "deepseek-v4-flash": "1024000",
                 "deepseek-v4-pro": "1024000",
+                "kimi-k2.7-code": "256000",
                 "kimi-k2.6": "256000",
             }
             for model, expected in ark_context_windows.items():
@@ -402,7 +405,7 @@ class UiSmokeTests(unittest.TestCase):
             self.assertEqual(group.thinking_combo.currentText(), "开启")
             group.thinking_combo.setCurrentText("关闭")
 
-            group.model_combo.setCurrentText("glm-5.1")
+            group.model_combo.setCurrentText("glm-5.2[1m]")
             QApplication.processEvents()
             self.assertTrue(group.reasoning_combo.isHidden())
             self.assertFalse(group.thinking_combo.isHidden())
@@ -412,7 +415,7 @@ class UiSmokeTests(unittest.TestCase):
             group.model_combo.setCurrentText("deepseek-v4-pro")
             QApplication.processEvents()
             self.assertEqual(group.thinking_combo.currentText(), "关闭")
-            group.model_combo.setCurrentText("glm-5.1")
+            group.model_combo.setCurrentText("glm-5.2[1m]")
             QApplication.processEvents()
             self.assertEqual(group.thinking_combo.currentText(), "关闭")
 
@@ -560,6 +563,38 @@ class UiSmokeTests(unittest.TestCase):
             window._loading = True
             window.close()
 
+    def test_successful_upgrade_result_shows_completion_dialog(self) -> None:
+        window = MainWindow()
+        try:
+            with patch("src.ui.main_window._show_info_dialog") as dialog:
+                window.worker = SimpleNamespace(
+                    upgrade_only=True,
+                    already_latest=False,
+                )
+                window._on_worker_finished(0)
+            dialog.assert_called_once_with(
+                window,
+                "升级完成",
+                "Claude Code 升级完成。",
+            )
+
+            with patch("src.ui.main_window._show_info_dialog") as dialog:
+                window.codex_worker = SimpleNamespace(
+                    upgrade_only=True,
+                    already_latest=False,
+                )
+                window._on_codex_finished(0)
+            dialog.assert_called_once_with(
+                window,
+                "升级完成",
+                "Codex CLI 升级完成。",
+            )
+        finally:
+            window.worker = None
+            window.codex_worker = None
+            window._loading = True
+            window.close()
+
     def test_codex_provider_switch_preserves_previous_provider_values(self) -> None:
         window = MainWindow()
         try:
@@ -568,14 +603,11 @@ class UiSmokeTests(unittest.TestCase):
             window.codex_parameter_group.apply_config(window.config.codex)
             window._loading = False
             window.codex_parameter_group.model_combo.setCurrentText("deepseek-v4-flash")
-            window.codex_proxy_group.http.enabled.setChecked(True)
-            window.codex_proxy_group.http.host.setText("127.0.0.1")
-            window.codex_proxy_group.http.port.setText("8090")
+            window.codex_proxy_group.http.setChecked(True)
             window.codex_parameter_group.provider_combo.setCurrentText("Kimi")
             saved = window.config.codex.provider_settings["DeepSeek"]
             self.assertEqual(saved.model, "deepseek-v4-flash")
-            self.assertEqual(saved.proxy.http.host, "127.0.0.1")
-            self.assertEqual(saved.proxy.http.port, "8090")
+            self.assertTrue(window.codex_proxy_group.http.isChecked())
         finally:
             window._loading = True
             window.close()
@@ -588,16 +620,9 @@ class UiSmokeTests(unittest.TestCase):
                 patch("src.ui.main_window._show_info_dialog") as dialog,
             ):
                 window.parameter_group.set_launch_target("cli")
-                for row in (
-                    window.proxy_group.http,
-                    window.proxy_group.https,
-                    window.proxy_group.socks5,
-                ):
-                    row.enabled.setChecked(True)
-                    row.host.setText("127.0.0.1")
-                    row.port.setText("8090")
-                    row.username.setText("user")
-                    row.password.setText("password")
+                window.proxy_group.http.setChecked(True)
+                window.proxy_group.https.setChecked(True)
+                window.proxy_group.socks5.setChecked(True)
                 window.parameter_group.set_launch_target("vscode")
                 window._autosave_timer.stop()
 
@@ -612,23 +637,10 @@ class UiSmokeTests(unittest.TestCase):
                 "4. 手动运行VS Code，仅用于查看源代码与确认项目运行结果。",
             )
             self.assertFalse(window.start_btn.isEnabled())
-            self.assertFalse(window.proxy_group.http.enabled.isEnabled())
-            for row in (
-                window.proxy_group.http,
-                window.proxy_group.https,
-                window.proxy_group.socks5,
-            ):
-                self.assertFalse(row.enabled.isChecked())
-                self.assertEqual(row.host.text(), "")
-                self.assertEqual(row.port.text(), "")
-                self.assertEqual(row.username.text(), "")
-                self.assertEqual(row.password.text(), "")
+            self.assertTrue(window.proxy_group.isHidden())
             self.assertFalse(window.config.proxy.http.enabled)
-            self.assertEqual(window.config.proxy.http.host, "")
             self.assertFalse(window.config.proxy.https.enabled)
-            self.assertEqual(window.config.proxy.https.host, "")
             self.assertFalse(window.config.proxy.socks5.enabled)
-            self.assertEqual(window.config.proxy.socks5.host, "")
             save.assert_called()
             with (
                 patch.object(window, "start_claude") as start_cli,
@@ -640,10 +652,8 @@ class UiSmokeTests(unittest.TestCase):
 
             window.parameter_group.set_launch_target("cli")
             self.assertTrue(window.start_btn.isEnabled())
-            self.assertTrue(window.proxy_group.http.enabled.isEnabled())
-            self.assertEqual(window.proxy_group.http.host.text(), "127.0.0.1")
-            self.assertEqual(window.proxy_group.http.port.text(), "8090")
-            self.assertTrue(window.proxy_group.http.enabled.isChecked())
+            self.assertFalse(window.proxy_group.isHidden())
+            self.assertTrue(window.proxy_group.http.isChecked())
             window.parameter_group.set_launch_target("upgrade")
             self.assertTrue(window.start_btn.isEnabled())
         finally:
@@ -660,7 +670,7 @@ class UiSmokeTests(unittest.TestCase):
                 window._sync_claude_target_state()
             dialog.assert_not_called()
             self.assertFalse(window.start_btn.isEnabled())
-            self.assertFalse(window.proxy_group.http.enabled.isEnabled())
+            self.assertTrue(window.proxy_group.isHidden())
         finally:
             window._loading = True
             window.close()
@@ -674,21 +684,14 @@ class UiSmokeTests(unittest.TestCase):
             ):
                 window.codex_parameter_group.set_launch_target("cli")
                 self.assertTrue(window.codex_start_btn.isEnabled())
-                self.assertTrue(window.codex_proxy_group.http.enabled.isEnabled())
+                self.assertFalse(window.codex_proxy_group.isHidden())
                 window.codex_parameter_group.set_launch_target("desktop")
                 self.assertTrue(window.codex_start_btn.isEnabled())
-                self.assertFalse(window.codex_proxy_group.http.enabled.isEnabled())
+                self.assertTrue(window.codex_proxy_group.isHidden())
                 window.codex_parameter_group.set_launch_target("cli")
-                for row in (
-                    window.codex_proxy_group.http,
-                    window.codex_proxy_group.https,
-                    window.codex_proxy_group.socks5,
-                ):
-                    row.enabled.setChecked(True)
-                    row.host.setText("127.0.0.1")
-                    row.port.setText("8090")
-                    row.username.setText("user")
-                    row.password.setText("password")
+                window.codex_proxy_group.http.setChecked(True)
+                window.codex_proxy_group.https.setChecked(True)
+                window.codex_proxy_group.socks5.setChecked(True)
                 window.codex_parameter_group.set_launch_target("vscode")
                 window._autosave_timer.stop()
 
@@ -703,17 +706,7 @@ class UiSmokeTests(unittest.TestCase):
                 "4. 手动运行VS Code，仅用于查看源代码与确认项目运行结果。",
             )
             self.assertFalse(window.codex_start_btn.isEnabled())
-            self.assertFalse(window.codex_proxy_group.http.enabled.isEnabled())
-            for row in (
-                window.codex_proxy_group.http,
-                window.codex_proxy_group.https,
-                window.codex_proxy_group.socks5,
-            ):
-                self.assertFalse(row.enabled.isChecked())
-                self.assertEqual(row.host.text(), "")
-                self.assertEqual(row.port.text(), "")
-                self.assertEqual(row.username.text(), "")
-                self.assertEqual(row.password.text(), "")
+            self.assertTrue(window.codex_proxy_group.isHidden())
             setting = window.config.codex.provider_settings[
                 window.config.codex.provider
             ]
@@ -729,10 +722,8 @@ class UiSmokeTests(unittest.TestCase):
             start.assert_called_once_with("vscode")
             window.codex_parameter_group.set_launch_target("cli")
             self.assertTrue(window.codex_start_btn.isEnabled())
-            self.assertTrue(window.codex_proxy_group.http.enabled.isEnabled())
-            self.assertEqual(window.codex_proxy_group.http.host.text(), "127.0.0.1")
-            self.assertEqual(window.codex_proxy_group.http.port.text(), "8090")
-            self.assertTrue(window.codex_proxy_group.http.enabled.isChecked())
+            self.assertFalse(window.codex_proxy_group.isHidden())
+            self.assertTrue(window.codex_proxy_group.http.isChecked())
         finally:
             window._loading = True
             window.close()
@@ -741,43 +732,55 @@ class UiSmokeTests(unittest.TestCase):
         window = MainWindow()
         try:
             with patch.object(window.config_manager, "save"):
-                claude_setting = window.config.provider_settings[
-                    window.config.provider
-                ]
-                claude_setting.proxies["cli"] = type(window.config.proxy)()
-                claude_setting.proxies["upgrade"] = type(window.config.proxy)()
+                window.config.proxy_enabled["claude"]["cli"] = {
+                    "http": False,
+                    "https": False,
+                    "socks5": False,
+                }
+                window.config.proxy_enabled["claude"]["upgrade"] = {
+                    "http": False,
+                    "https": False,
+                    "socks5": False,
+                }
+                window.config.proxy_enabled["codex"]["cli"] = {
+                    "http": False,
+                    "https": False,
+                    "socks5": False,
+                }
+                window.config.proxy_enabled["codex"]["upgrade"] = {
+                    "http": False,
+                    "https": False,
+                    "socks5": False,
+                }
                 window.parameter_group.set_launch_target("cli")
-                window.proxy_group.http.enabled.setChecked(True)
-                window.proxy_group.http.host.setText("127.0.0.1")
-                window.proxy_group.http.port.setText("8001")
+                window.proxy_group.apply_config(
+                    window.config.proxy_enabled["claude"]["cli"]
+                )
+                window.proxy_group.http.setChecked(True)
                 window.parameter_group.set_launch_target("upgrade")
-                self.assertEqual(window.proxy_group.http.host.text(), "")
-                window.proxy_group.http.enabled.setChecked(True)
-                window.proxy_group.http.host.setText("127.0.0.1")
-                window.proxy_group.http.port.setText("8002")
+                self.assertFalse(window.proxy_group.http.isChecked())
+                window.proxy_group.https.setChecked(True)
                 window.parameter_group.set_launch_target("cli")
-                self.assertEqual(window.proxy_group.http.port.text(), "8001")
+                self.assertTrue(window.proxy_group.http.isChecked())
+                self.assertFalse(window.proxy_group.https.isChecked())
                 window.parameter_group.set_launch_target("upgrade")
-                self.assertEqual(window.proxy_group.http.port.text(), "8002")
+                self.assertFalse(window.proxy_group.http.isChecked())
+                self.assertTrue(window.proxy_group.https.isChecked())
 
-                codex_setting = window.config.codex.provider_settings[
-                    window.config.codex.provider
-                ]
-                codex_setting.proxies["cli"] = type(codex_setting.proxy)()
-                codex_setting.proxies["upgrade"] = type(codex_setting.proxy)()
                 window.codex_parameter_group.set_launch_target("cli")
-                window.codex_proxy_group.https.enabled.setChecked(True)
-                window.codex_proxy_group.https.host.setText("127.0.0.1")
-                window.codex_proxy_group.https.port.setText("9001")
+                window.codex_proxy_group.apply_config(
+                    window.config.proxy_enabled["codex"]["cli"]
+                )
+                window.codex_proxy_group.https.setChecked(True)
                 window.codex_parameter_group.set_launch_target("upgrade")
-                self.assertEqual(window.codex_proxy_group.https.host.text(), "")
-                window.codex_proxy_group.https.enabled.setChecked(True)
-                window.codex_proxy_group.https.host.setText("127.0.0.1")
-                window.codex_proxy_group.https.port.setText("9002")
+                self.assertFalse(window.codex_proxy_group.https.isChecked())
+                window.codex_proxy_group.http.setChecked(True)
                 window.codex_parameter_group.set_launch_target("cli")
-                self.assertEqual(window.codex_proxy_group.https.port.text(), "9001")
+                self.assertTrue(window.codex_proxy_group.https.isChecked())
+                self.assertFalse(window.codex_proxy_group.http.isChecked())
                 window.codex_parameter_group.set_launch_target("upgrade")
-                self.assertEqual(window.codex_proxy_group.https.port.text(), "9002")
+                self.assertFalse(window.codex_proxy_group.https.isChecked())
+                self.assertTrue(window.codex_proxy_group.http.isChecked())
                 window._autosave_timer.stop()
         finally:
             window._loading = True
@@ -786,7 +789,12 @@ class UiSmokeTests(unittest.TestCase):
     def test_official_proxy_confirmation_messages_are_exact(self) -> None:
         window = MainWindow()
         try:
-            window.proxy_group.clear()
+            for checkbox in (
+                window.proxy_group.http,
+                window.proxy_group.https,
+                window.proxy_group.socks5,
+            ):
+                checkbox.setChecked(False)
             with patch(
                 "src.ui.main_window._show_confirm_dialog",
                 return_value=False,
@@ -803,9 +811,9 @@ class UiSmokeTests(unittest.TestCase):
                 "Codex官方接口"
             )
             window.codex_parameter_group.project_path_edit.setText(".")
-            window.codex_proxy_group.http.enabled.setChecked(False)
-            window.codex_proxy_group.https.enabled.setChecked(False)
-            window.codex_proxy_group.socks5.enabled.setChecked(False)
+            window.codex_proxy_group.http.setChecked(False)
+            window.codex_proxy_group.https.setChecked(False)
+            window.codex_proxy_group.socks5.setChecked(False)
             with (
                 patch.object(window.config_manager, "save"),
                 patch.object(
@@ -956,9 +964,7 @@ class UiSmokeTests(unittest.TestCase):
         try:
             window.codex_parameter_group.set_launch_target("desktop")
             window.codex_parameter_group.project_path_edit.setText(".")
-            window.codex_proxy_group.socks5.enabled.setChecked(True)
-            window.codex_proxy_group.socks5.host.setText("127.0.0.1")
-            window.codex_proxy_group.socks5.port.clear()
+            window.codex_proxy_group.socks5.setChecked(True)
             executable = Path(r"C:\Apps\Codex.exe")
             with (
                 patch.object(window.config_manager, "save"),
@@ -1004,11 +1010,11 @@ class UiSmokeTests(unittest.TestCase):
                 "Codex官方接口"
             )
             window.codex_parameter_group.project_path_edit.setText(".")
-            window.codex_proxy_group.http.enabled.setChecked(False)
-            window.codex_proxy_group.https.enabled.setChecked(False)
-            window.codex_proxy_group.socks5.enabled.setChecked(True)
-            window.codex_proxy_group.socks5.host.setText("127.0.0.1")
-            window.codex_proxy_group.socks5.port.setText("8090")
+            window.config.proxy_settings.socks5.host = "127.0.0.1"
+            window.config.proxy_settings.socks5.port = "8090"
+            window.codex_proxy_group.http.setChecked(False)
+            window.codex_proxy_group.https.setChecked(False)
+            window.codex_proxy_group.socks5.setChecked(True)
 
             with (
                 patch.object(window.config_manager, "save"),

@@ -4,186 +4,132 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSignalBlocker
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLineEdit,
-    QSizePolicy,
-    QVBoxLayout,
     QWidget,
 )
 
-from src.core.config_manager import AppConfig
+from src.core.config_manager import ProxyConfig, ProxyItem
 
 
-class _ProxyRow(QWidget):
+class ProxyToggleGroup(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.enabled = QCheckBox("启用")
-        self.enabled.setMinimumHeight(30)
+        self.http = QCheckBox("HTTP代理")
+        self.https = QCheckBox("HTTPS代理")
+        self.socks5 = QCheckBox("Socks5代理")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(18)
+        for checkbox in (self.http, self.https, self.socks5):
+            layout.addWidget(checkbox)
+        layout.addStretch(1)
 
+    def apply_config(self, enabled: dict[str, bool]) -> None:
+        self.http.setChecked(bool(enabled.get("http", False)))
+        self.https.setChecked(bool(enabled.get("https", False)))
+        self.socks5.setChecked(bool(enabled.get("socks5", False)))
+
+    def collect_config_data(self) -> dict[str, bool]:
+        return {
+            "http": self.http.isChecked(),
+            "https": self.https.isChecked(),
+            "socks5": self.socks5.isChecked(),
+        }
+
+    def set_ui_enabled(self, enabled: bool) -> None:
+        for checkbox in (self.http, self.https, self.socks5):
+            checkbox.setEnabled(enabled)
+
+    def validate(self, settings: ProxyConfig) -> tuple[bool, str]:
+        checks = (
+            (self.http, settings.http, "HTTP代理"),
+            (self.https, settings.https, "HTTPS代理"),
+            (self.socks5, settings.socks5, "Socks5代理"),
+        )
+        for checkbox, item, label in checks:
+            if not checkbox.isChecked():
+                continue
+            missing = []
+            if not item.host.strip():
+                missing.append("IP地址")
+            if not item.port.strip():
+                missing.append("端口号")
+            if missing:
+                return (
+                    False,
+                    f"您已勾选【{label}】，但网络代理设置中未填写"
+                    f"{'和'.join(missing)}。\n\n"
+                    "请在“鉴权设置 > 网络代理”中补充参数，或取消勾选该代理。",
+                )
+        return True, ""
+
+
+class _NetworkProxyRow(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
         self.host = QLineEdit()
         self.host.setPlaceholderText("IP地址")
-        self.host.setToolTip("IP地址")
-        self.host.setMinimumHeight(30)
-        self.host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
         self.port = QLineEdit()
         self.port.setPlaceholderText("端口")
-        self.port.setToolTip("端口")
-        self.port.setMinimumHeight(30)
         self.port.setMaximumWidth(110)
-        self.port.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
         self.username = QLineEdit()
         self.username.setPlaceholderText("用户名")
-        self.username.setToolTip("用户名")
-        self.username.setMinimumHeight(30)
-        self.username.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
         self.password = QLineEdit()
         self.password.setPlaceholderText("密码")
-        self.password.setToolTip("密码")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password.setMinimumHeight(30)
-        self.password.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        layout = QHBoxLayout()
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addWidget(self.enabled, 0)
         layout.addWidget(self.host, 2)
         layout.addWidget(self.port, 0)
         layout.addWidget(self.username, 1)
         layout.addWidget(self.password, 1)
-        self.setLayout(layout)
-
-        # 勾选代理时，自动填写 127.0.0.1（仅当 IP 为空时）
-        self.enabled.toggled.connect(self._on_enabled_toggled)
-
-    def _on_enabled_toggled(self, checked: bool) -> None:
-        if checked and not self.host.text().strip():
-            self.host.setText("127.0.0.1")
-
-    def set_row_enabled(self, enabled: bool) -> None:
-        """启用/禁用该代理行的所有控件（启动时禁用，停止后恢复）。"""
-        self.enabled.setEnabled(enabled)
-        self.host.setEnabled(enabled)
-        self.port.setEnabled(enabled)
-        self.username.setEnabled(enabled)
-        self.password.setEnabled(enabled)
 
 
-class ProxyGroup(QGroupBox):
-    def __init__(self) -> None:
-        super().__init__("设置代理")
-        self.http = _ProxyRow()
-        self.https = _ProxyRow()
-        self.socks5 = _ProxyRow()
-
-        form = QFormLayout()
+class NetworkProxyGroup(QWidget):
+    def __init__(self, settings: ProxyConfig | None = None) -> None:
+        super().__init__()
+        self.http = _NetworkProxyRow()
+        self.https = _NetworkProxyRow()
+        self.socks5 = _NetworkProxyRow()
+        form = QFormLayout(self)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.addRow("HTTP代理", self.http)
         form.addRow("HTTPS代理", self.https)
         form.addRow("Socks5代理", self.socks5)
-        self.setLayout(form)
+        self.apply_config(settings or ProxyConfig())
 
-    def set_ui_enabled(self, enabled: bool) -> None:
-        """启用/禁用所有代理行控件（启动时禁用，停止后恢复）。"""
-        for row in (self.http, self.https, self.socks5):
-            row.set_row_enabled(enabled)
+    def apply_config(self, settings: ProxyConfig) -> None:
+        self._apply_row(self.http, settings.http)
+        self._apply_row(self.https, settings.https)
+        self._apply_row(self.socks5, settings.socks5)
 
-    def clear(self) -> None:
-        """清空全部代理参数。"""
-        for row in (self.http, self.https, self.socks5):
-            widgets = (
-                row.enabled,
-                row.host,
-                row.port,
-                row.username,
-                row.password,
-            )
-            blockers = [QSignalBlocker(widget) for widget in widgets]
-            row.enabled.setChecked(False)
-            row.host.clear()
-            row.port.clear()
-            row.username.clear()
-            row.password.clear()
-            del blockers
+    def collect_config(self) -> ProxyConfig:
+        return ProxyConfig(
+            http=self._collect_row(self.http),
+            https=self._collect_row(self.https),
+            socks5=self._collect_row(self.socks5),
+        )
 
-    def apply_config(self, config: AppConfig) -> None:
-        self._apply_row(self.http, config.proxy.http)
-        self._apply_row(self.https, config.proxy.https)
-        self._apply_row(self.socks5, config.proxy.socks5)
-
-    def collect_config_data(self) -> dict:
-        return {
-            "http": self._collect_row(self.http),
-            "https": self._collect_row(self.https),
-            "socks5": self._collect_row(self.socks5),
-        }
-
-    def validate(self) -> tuple[bool, str]:
-        """
-        校验代理配置：勾选了代理必须同时填写 IP 地址和端口号。
-        返回 (True, "") 表示校验通过；
-        返回 (False, error_message) 表示校验失败，error_message 说明具体原因。
-        """
-        checks = [
-            (self.http, "HTTP代理"),
-            (self.https, "HTTPS代理"),
-            (self.socks5, "Socks5代理"),
-        ]
-        for row, label in checks:
-            if not row.enabled.isChecked():
-                continue
-            host = row.host.text().strip()
-            port = row.port.text().strip()
-            if not host and not port:
-                return (
-                    False,
-                    f"您已勾选【{label}】，但未填写 IP 地址和端口号。\n\n"
-                    "请填写 IP 地址和端口号，或取消勾选该代理后再启动。",
-                )
-            if not host:
-                return (
-                    False,
-                    f"您已勾选【{label}】，但未填写 IP 地址。\n\n"
-                    "请填写 IP 地址后再启动，或取消勾选该代理。",
-                )
-            if not port:
-                return (
-                    False,
-                    "请填写由其它代理软件定义的端口号。",
-                )
-        return True, ""
-
-    def _apply_row(self, row: _ProxyRow, data) -> None:
-        row.enabled.setChecked(data.enabled)
-        row.host.setText(data.host)
-        row.port.setText(data.port)
-
-        auth = (data.auth or "").strip()
-        if ":" in auth:
-            username, password = auth.split(":", 1)
-        else:
-            username, password = auth, ""
+    @staticmethod
+    def _apply_row(row: _NetworkProxyRow, item: ProxyItem) -> None:
+        row.host.setText(item.host)
+        row.port.setText(item.port)
+        username, separator, password = (item.auth or "").partition(":")
         row.username.setText(username)
-        row.password.setText(password)
+        row.password.setText(password if separator else "")
 
-    def _collect_row(self, row: _ProxyRow) -> dict:
+    @staticmethod
+    def _collect_row(row: _NetworkProxyRow) -> ProxyItem:
         username = row.username.text().strip()
         password = row.password.text().strip()
-        auth = ""
-        if username or password:
-            auth = f"{username}:{password}"
-
-        return {
-            "enabled": row.enabled.isChecked(),
-            "host": row.host.text().strip(),
-            "port": row.port.text().strip(),
-            "auth": auth,
-        }
+        auth = f"{username}:{password}" if username or password else ""
+        return ProxyItem(
+            host=row.host.text().strip(),
+            port=row.port.text().strip(),
+            auth=auth,
+        )

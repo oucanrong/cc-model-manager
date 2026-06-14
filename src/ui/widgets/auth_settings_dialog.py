@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config_manager import CodexProviderSettings, ProviderSettings
+from src.core.config_manager import CodexProviderSettings, ProviderSettings, ProxyConfig
+from src.ui.widgets.proxy_group import NetworkProxyGroup
 from src.core.constants import (
     CODEX_PROVIDER_DEEPSEEK,
     CODEX_PROVIDER_DEFAULTS,
@@ -100,6 +101,7 @@ class AuthSettingsDialog(QDialog):
         provider_settings: dict[str, ProviderSettings],
         codex_settings: dict[str, CodexProviderSettings],
         parent: QWidget | None = None,
+        proxy_settings: ProxyConfig | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("鉴权设置")
@@ -120,6 +122,7 @@ class AuthSettingsDialog(QDialog):
         self.setMinimumSize(min(w, 820), min(h, 700))
         self._claude_fields: dict[str, tuple[QLineEdit, QLineEdit]] = {}
         self._codex_fields: dict[str, tuple[QLineEdit, QLineEdit]] = {}
+        self._network_proxy_group = NetworkProxyGroup(proxy_settings)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
@@ -132,6 +135,7 @@ class AuthSettingsDialog(QDialog):
         tabs.tabBar().setFixedHeight(36)
         tabs.addTab(self._build_claude_page(provider_settings), "Claude Code")
         tabs.addTab(self._build_codex_page(codex_settings), "Codex")
+        tabs.addTab(self._build_proxy_page(), "网络代理")
         root.addWidget(tabs, 1)
 
         buttons = QHBoxLayout()
@@ -190,6 +194,16 @@ class AuthSettingsDialog(QDialog):
             lambda key: str(CODEX_PROVIDER_DEFAULTS[key]["base_url"]),
             _CODEX_API_APPLY_URLS,
         )
+
+    def _build_proxy_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        hint = QLabel("代理地址由 Claude Code 和 Codex 共用，是否启用由主窗口分别选择。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addWidget(self._network_proxy_group)
+        layout.addStretch(1)
+        return page
 
     def _build_provider_pages(
         self,
@@ -265,6 +279,9 @@ class AuthSettingsDialog(QDialog):
             )
             for key, (base_url, token) in self._codex_fields.items()
         }
+
+    def get_proxy_settings(self) -> ProxyConfig:
+        return self._network_proxy_group.collect_config()
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(

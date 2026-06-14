@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 
-APP_NAME = "cc模型管理器v2.3.1"
+APP_NAME = "cc模型管理器v2.3.2"
 
 
 def application_root() -> Path:
@@ -185,9 +185,12 @@ CODEX_PROVIDER_DEFAULTS = {
     },
     CODEX_PROVIDER_KIMI: {
         "base_url": "https://api.moonshot.cn/v1",
-        "models": ("kimi-k2.6",),
-        "default_model": "kimi-k2.6",
-        "display_names": {"kimi-k2.6": "Kimi K2.6"},
+        "models": ("kimi-k2.7-code", "kimi-k2.6"),
+        "default_model": "kimi-k2.7-code",
+        "display_names": {
+            "kimi-k2.7-code": "Kimi K2.7 Code",
+            "kimi-k2.6": "Kimi K2.6",
+        },
         "context_window": 256_000,
         "protocol": CODEX_PROTOCOL_CHAT_PROXY,
         "reasoning_control": CODEX_REASONING_CONTROL_TOGGLE,
@@ -208,14 +211,18 @@ CODEX_PROVIDER_DEFAULTS = {
     },
     CODEX_PROVIDER_ZHIPU: {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "models": ("glm-5.1", "glm-5-turbo", "glm-4.5-air"),
-        "default_model": "glm-5.1",
+        "models": ("glm-5.2[1m]", "glm-5-turbo", "glm-4.5-air"),
+        "default_model": "glm-5.2[1m]",
         "display_names": {
-            "glm-5.1": "GLM-5.1",
+            "glm-5.2[1m]": "GLM-5.2 [1M]",
             "glm-5-turbo": "GLM-5 Turbo",
             "glm-4.5-air": "GLM-4.5 Air",
         },
-        "context_window": 200_000,
+        "context_windows": {
+            "glm-5.2[1m]": 1_000_000,
+            "glm-5-turbo": 200_000,
+            "glm-4.5-air": 200_000,
+        },
         "protocol": CODEX_PROTOCOL_CHAT_PROXY,
         "reasoning_control": CODEX_REASONING_CONTROL_TOGGLE,
         "reasoning_options": (),
@@ -302,9 +309,10 @@ CODEX_PROVIDER_DEFAULTS = {
             "doubao-seed-2.0-pro",
             "doubao-seed-2.0-lite",
             "minimax-latest",
-            "glm-5.1",
+            "glm-5.2[1m]",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
+            "kimi-k2.7-code",
             "kimi-k2.6",
         ),
         "default_model": "doubao-seed-2.0-code",
@@ -314,9 +322,10 @@ CODEX_PROVIDER_DEFAULTS = {
             "doubao-seed-2.0-pro": 256_000,
             "doubao-seed-2.0-lite": 256_000,
             "minimax-latest": 512_000,
-            "glm-5.1": 200_000,
+            "glm-5.2[1m]": 1_000_000,
             "deepseek-v4-flash": 1_024_000,
             "deepseek-v4-pro": 1_024_000,
+            "kimi-k2.7-code": 256_000,
             "kimi-k2.6": 256_000,
         },
         "protocol": CODEX_PROTOCOL_RESPONSES_PROXY,
@@ -339,7 +348,7 @@ CODEX_PROVIDER_DEFAULTS = {
             "minimax-latest": _model_reasoning(
                 CODEX_REASONING_CONTROL_NONE,
             ),
-            "glm-5.1": _model_reasoning(
+            "glm-5.2[1m]": _model_reasoning(
                 CODEX_REASONING_CONTROL_TOGGLE,
                 default_thinking=True,
             ),
@@ -350,10 +359,11 @@ CODEX_PROVIDER_DEFAULTS = {
             )
             for model in ("deepseek-v4-flash", "deepseek-v4-pro")
         } | {
-            "kimi-k2.6": _model_reasoning(
+            model: _model_reasoning(
                 CODEX_REASONING_CONTROL_TOGGLE,
                 default_thinking=True,
-            ),
+            )
+            for model in ("kimi-k2.7-code", "kimi-k2.6")
         },
         "model_metadata": {
             model: _model_metadata(
@@ -369,9 +379,10 @@ CODEX_PROVIDER_DEFAULTS = {
             model: _model_metadata()
             for model in (
                 "minimax-latest",
-                "glm-5.1",
+                "glm-5.2[1m]",
                 "deepseek-v4-flash",
                 "deepseek-v4-pro",
+                "kimi-k2.7-code",
                 "kimi-k2.6",
             )
         },
@@ -513,12 +524,12 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
     ),
     PROVIDER_KIMI: ProviderPreset(
         base_url="https://api.moonshot.cn/anthropic",
-        model_options=("kimi-k2.6",),
-        anthropic_model_default="kimi-k2.6",
-        default_opus_model_default="kimi-k2.6",
-        default_sonnet_model_default="kimi-k2.6",
+        model_options=("kimi-k2.7-code", "kimi-k2.6"),
+        anthropic_model_default="kimi-k2.7-code",
+        default_opus_model_default="kimi-k2.7-code",
+        default_sonnet_model_default="kimi-k2.7-code",
         default_haiku_model_default="kimi-k2.6",
-        subagent_model_default="kimi-k2.6",
+        subagent_model_default="kimi-k2.7-code",
         effort_level_options=("max",),
         effort_level_default="max",
         parameters_enabled=True,
@@ -531,9 +542,9 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
     ),
     PROVIDER_ZHIPU: ProviderPreset(
         base_url="https://open.bigmodel.cn/api/anthropic",
-        model_options=("glm-4.5-air", "glm-5-turbo", "glm-5.1"),
-        anthropic_model_default="glm-5.1",
-        default_opus_model_default="glm-5.1",
+        model_options=("glm-4.5-air", "glm-5-turbo", "glm-5.2[1m]"),
+        anthropic_model_default="glm-5.2[1m]",
+        default_opus_model_default="glm-5.2[1m]",
         default_sonnet_model_default="glm-5-turbo",
         default_haiku_model_default="glm-4.5-air",
         subagent_model_default="glm-5-turbo",
@@ -609,9 +620,10 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
             "doubao-seed-2.0-pro",
             "doubao-seed-2.0-lite",
             "minimax-latest",
-            "glm-5.1",
+            "glm-5.2[1m]",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
+            "kimi-k2.7-code",
             "kimi-k2.6",
         ),
         anthropic_model_default="doubao-seed-2.0-code",
