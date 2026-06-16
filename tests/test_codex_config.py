@@ -367,17 +367,23 @@ class CodexConfigTests(unittest.TestCase):
                 https=ProxyItem(host="127.0.0.1", port="8002"),
                 socks5=ProxyItem(host="127.0.0.1", port="8003"),
             )
-            config.proxy_enabled["claude"]["cli"]["http"] = True
-            config.proxy_enabled["claude"]["upgrade"]["https"] = True
-            config.proxy_enabled["codex"]["cli"]["socks5"] = True
+            config.proxy_enabled["claude"]["DeepSeek"]["cli"]["http"] = True
+            config.proxy_enabled["claude"]["Kimi"]["upgrade"]["https"] = True
+            config.proxy_enabled["codex"]["智谱GLM"]["cli"]["socks5"] = True
             manager.save(config)
 
             loaded = manager.load()
             self.assertEqual(loaded.proxy_settings.http.host, "127.0.0.1")
             self.assertEqual(loaded.proxy_settings.http.auth, "u:p")
-            self.assertTrue(loaded.proxy_enabled["claude"]["cli"]["http"])
-            self.assertTrue(loaded.proxy_enabled["claude"]["upgrade"]["https"])
-            self.assertTrue(loaded.proxy_enabled["codex"]["cli"]["socks5"])
+            self.assertTrue(
+                loaded.proxy_enabled["claude"]["DeepSeek"]["cli"]["http"]
+            )
+            self.assertTrue(
+                loaded.proxy_enabled["claude"]["Kimi"]["upgrade"]["https"]
+            )
+            self.assertTrue(
+                loaded.proxy_enabled["codex"]["智谱GLM"]["cli"]["socks5"]
+            )
 
             saved = json.loads(path.read_text(encoding="utf-8"))
             self.assertIn("proxy_settings", saved)
@@ -388,6 +394,44 @@ class CodexConfigTests(unittest.TestCase):
                 self.assertNotIn(
                     "proxies",
                     saved["codex"]["provider_settings"][provider],
+                )
+
+    def test_legacy_target_proxy_flags_are_copied_to_each_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "proxy_enabled": {
+                            "claude": {
+                                "cli": {
+                                    "http": True,
+                                    "https": False,
+                                    "socks5": False,
+                                }
+                            },
+                            "codex": {
+                                "upgrade": {
+                                    "http": False,
+                                    "https": True,
+                                    "socks5": False,
+                                }
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = ConfigManager(path).load()
+
+            for provider in PROVIDER_OPTIONS:
+                self.assertTrue(
+                    config.proxy_enabled["claude"][provider]["cli"]["http"]
+                )
+            for provider in CODEX_PROVIDER_OPTIONS:
+                self.assertTrue(
+                    config.proxy_enabled["codex"][provider]["upgrade"]["https"]
                 )
 
     @staticmethod

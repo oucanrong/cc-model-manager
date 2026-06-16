@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import sys
 
-APP_NAME = "cc模型管理器v2.3.2"
+APP_NAME = "cc模型管理器v2.3.3"
 
 
 def application_root() -> Path:
@@ -65,14 +65,14 @@ CLAUDE_LAUNCH_TARGET_DEFAULT = "cli"
 CLAUDE_LAUNCH_TARGET_OPTIONS = (
     ("cli", "启动Claude Code cli版"),
     ("vscode", "启动VS Code"),
-    ("upgrade", "升级Claude Code cli版"),
+    ("upgrade", "升级Claude Code cli版(国内快速镜像)"),
 )
 CODEX_LAUNCH_TARGET_DEFAULT = "desktop"
 CODEX_LAUNCH_TARGET_OPTIONS = (
     ("desktop", "启动Codex 桌面版"),
     ("cli", "启动Codex cli版"),
     ("vscode", "启动VS Code"),
-    ("upgrade", "升级Codex cli版"),
+    ("upgrade", "升级Codex cli版(国内快速镜像)"),
 )
 
 
@@ -443,6 +443,53 @@ def get_codex_model_metadata(provider: str, model: str) -> dict:
             return value
     return _model_metadata()
 
+
+CLAUDE_CONTEXT_WINDOWS = {
+    PROVIDER_DEEPSEEK: {
+        "deepseek-v4-flash": 1_000_000,
+        "deepseek-v4-pro[1m]": 1_000_000,
+    },
+    PROVIDER_KIMI: {
+        "kimi-k2.7-code": 256_000,
+        "kimi-k2.6": 256_000,
+    },
+    PROVIDER_ZHIPU: {
+        "glm-5.2[1m]": 1_000_000,
+        "glm-5-turbo": 200_000,
+        "glm-4.5-air": 200_000,
+    },
+    PROVIDER_QWEN: {
+        "qwen3.7-max": 1_000_000,
+        "qwen3.7-plus": 1_000_000,
+        "qwen3.6-flash": 256_000,
+    },
+    PROVIDER_MINIMAX: {"MiniMax-M3": 512_000},
+    PROVIDER_XIAOMI_MIMO: {
+        "mimo-v2.5": 1_000_000,
+        "mimo-v2.5-pro": 1_000_000,
+    },
+    PROVIDER_ARK_CODING: {
+        "doubao-seed-2.0-code": 256_000,
+        "doubao-seed-2.0-pro": 256_000,
+        "doubao-seed-2.0-lite": 256_000,
+        "minimax-latest": 512_000,
+        "glm-5.2[1m]": 1_000_000,
+        "deepseek-v4-flash": 1_000_000,
+        "deepseek-v4-pro": 1_000_000,
+        "kimi-k2.7-code": 256_000,
+        "kimi-k2.6": 256_000,
+    },
+    PROVIDER_CLAUDE_RELAY: {
+        "claude-sonnet-4-6": 1_000_000,
+        "claude-opus-4-8": 1_000_000,
+        "claude-haiku-4-5-20251001": 1_000_000,
+    },
+}
+
+
+def get_claude_context_window(provider: str, model: str) -> int | None:
+    return CLAUDE_CONTEXT_WINDOWS.get(provider, {}).get(model)
+
 PROVIDER_OPTIONS = [
     PROVIDER_CLAUDE_DEFAULT,
     PROVIDER_DEEPSEEK,
@@ -545,9 +592,9 @@ PROVIDER_PRESETS: dict[str, ProviderPreset] = {
         model_options=("glm-4.5-air", "glm-5-turbo", "glm-5.2[1m]"),
         anthropic_model_default="glm-5.2[1m]",
         default_opus_model_default="glm-5.2[1m]",
-        default_sonnet_model_default="glm-5-turbo",
+        default_sonnet_model_default="glm-5.2[1m]",
         default_haiku_model_default="glm-4.5-air",
-        subagent_model_default="glm-5-turbo",
+        subagent_model_default="glm-5.2[1m]",
         effort_level_options=("max",),
         effort_level_default="max",
         parameters_enabled=True,

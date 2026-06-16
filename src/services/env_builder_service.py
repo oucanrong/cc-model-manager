@@ -9,6 +9,7 @@ from src.core.config_manager import AppConfig
 from src.core.constants import (
     PROVIDER_CLAUDE_DEFAULT,
     PROVIDER_CLAUDE_RELAY,
+    get_claude_context_window,
     get_provider_preset,
 )
 from .proxy_service import apply_proxy_env
@@ -23,6 +24,7 @@ CLAUDE_MANAGED_ENV_KEYS = {
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "CLAUDE_CODE_SUBAGENT_MODEL",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
     "CLAUDE_CODE_EFFORT_LEVEL",
     "ENABLE_TOOL_SEARCH",
     "API_TIMEOUT_MS",
@@ -88,6 +90,13 @@ def build_env(config: AppConfig) -> dict[str, str]:
                 env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model_haiku
             if subagent:
                 env["CLAUDE_CODE_SUBAGENT_MODEL"] = subagent
+
+            context_window = get_claude_context_window(
+                config.provider,
+                model_main,
+            )
+            if context_window is not None:
+                env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(context_window)
 
             # CLAUDE_CODE_EFFORT_LEVEL：仅对非 Kimi、非 GLM5、非千问 的 provider 注入
             if preset.hide_effort_level:

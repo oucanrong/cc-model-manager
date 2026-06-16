@@ -12,15 +12,19 @@
   },
   "proxy_enabled": {
     "claude": {
-      "cli": {"http": false, "https": false, "socks5": false},
-      "vscode": {"http": false, "https": false, "socks5": false},
-      "upgrade": {"http": false, "https": false, "socks5": false}
+      "Claude官方接口": {
+        "cli": {"http": false, "https": false, "socks5": false},
+        "vscode": {"http": false, "https": false, "socks5": false},
+        "upgrade": {"http": false, "https": false, "socks5": false}
+      }
     },
     "codex": {
-      "desktop": {"http": false, "https": false, "socks5": false},
-      "cli": {"http": false, "https": false, "socks5": false},
-      "vscode": {"http": false, "https": false, "socks5": false},
-      "upgrade": {"http": false, "https": false, "socks5": false}
+      "Codex官方接口": {
+        "desktop": {"http": false, "https": false, "socks5": false},
+        "cli": {"http": false, "https": false, "socks5": false},
+        "vscode": {"http": false, "https": false, "socks5": false},
+        "upgrade": {"http": false, "https": false, "socks5": false}
+      }
     }
   },
   "provider_settings": {

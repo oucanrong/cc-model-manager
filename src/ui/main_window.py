@@ -465,16 +465,16 @@ class MainWindow(QMainWindow):
         try:
             self.parameter_group.apply_config(self.config)
             self.proxy_group.apply_config(
-                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
+                self._claude_proxy_flags()
             )
             self.codex_parameter_group.apply_config(self.config.codex)
             codex_setting = self.config.codex.provider_settings[self.config.codex.provider]
             codex_setting.proxy = build_active_proxy(
                 self.config.proxy_settings,
-                self.config.proxy_enabled["codex"][self.config.codex.launch_target],
+                self._codex_proxy_flags(),
             )
             self.codex_proxy_group.apply_config(
-                self.config.proxy_enabled["codex"][self.config.codex.launch_target]
+                self._codex_proxy_flags()
             )
             self.config.token = self.config.auth_tokens.get(self.config.provider, "").strip()
         finally:
@@ -483,6 +483,24 @@ class MainWindow(QMainWindow):
         self._refresh_status()
         self._sync_claude_target_state()
         self._sync_codex_target_state()
+
+    def _claude_proxy_flags(
+        self,
+        provider: str | None = None,
+        target: str | None = None,
+    ) -> dict[str, bool]:
+        return self.config.proxy_enabled["claude"][
+            provider or self.config.provider
+        ][target or self.config.claude_launch_target]
+
+    def _codex_proxy_flags(
+        self,
+        provider: str | None = None,
+        target: str | None = None,
+    ) -> dict[str, bool]:
+        return self.config.proxy_enabled["codex"][
+            provider or self.config.codex.provider
+        ][target or self.config.codex.launch_target]
 
     def _wire_autosave(self) -> None:
         pg = self.parameter_group
@@ -542,19 +560,19 @@ class MainWindow(QMainWindow):
         if self._loading:
             return
         old_target = self.config.claude_launch_target
-        self.config.proxy_enabled["claude"][old_target] = (
+        self.config.proxy_enabled["claude"][self.config.provider][old_target] = (
             self.proxy_group.collect_config_data()
         )
         new_target = self.parameter_group.current_launch_target()
         self.config.claude_launch_target = new_target
         self.config.proxy = build_active_proxy(
             self.config.proxy_settings,
-            self.config.proxy_enabled["claude"][new_target],
+            self._claude_proxy_flags(target=new_target),
         )
         self._loading = True
         try:
             self.proxy_group.apply_config(
-                self.config.proxy_enabled["claude"][new_target]
+                self._claude_proxy_flags(target=new_target)
             )
         finally:
             self._loading = False
@@ -582,7 +600,7 @@ class MainWindow(QMainWindow):
         if self._loading:
             return
         old_target = self.config.codex.launch_target
-        self.config.proxy_enabled["codex"][old_target] = (
+        self.config.proxy_enabled["codex"][self.config.codex.provider][old_target] = (
             self.codex_proxy_group.collect_config_data()
         )
         new_target = self.codex_parameter_group.current_launch_target()
@@ -590,12 +608,12 @@ class MainWindow(QMainWindow):
         setting = self.config.codex.provider_settings[self.config.codex.provider]
         setting.proxy = build_active_proxy(
             self.config.proxy_settings,
-            self.config.proxy_enabled["codex"][new_target],
+            self._codex_proxy_flags(target=new_target),
         )
         self._loading = True
         try:
             self.codex_proxy_group.apply_config(
-                self.config.proxy_enabled["codex"][new_target]
+                self._codex_proxy_flags(target=new_target)
             )
         finally:
             self._loading = False
@@ -638,17 +656,17 @@ class MainWindow(QMainWindow):
             setting = self.config.codex.provider_settings[provider]
             setting.proxy = build_active_proxy(
                 self.config.proxy_settings,
-                self.config.proxy_enabled["codex"][self.config.codex.launch_target],
+                self._codex_proxy_flags(provider=provider),
             )
             self.codex_proxy_group.apply_config(
-                self.config.proxy_enabled["codex"][self.config.codex.launch_target]
+                self._codex_proxy_flags(provider=provider)
             )
         finally:
             self._loading = False
         self._sync_parameter_group_layouts()
         self._refresh_status()
         self._sync_codex_target_state()
-        self._schedule_autosave()
+        self.config_manager.save(self.config)
 
     def _handle_codex_model_change(self, model: str) -> None:
         if self._loading:
@@ -690,7 +708,7 @@ class MainWindow(QMainWindow):
         old_provider = self.config.provider
 
         # 将当前 UI 数据读取到 config 顶层字段
-        self._sync_config_from_ui()
+        self._sync_config_from_ui(provider_override=old_provider)
 
         # BUGFIX: _sync_config_from_ui() 内部先将 config.provider 设为新 provider，
         # 然后从 auth_tokens[新provider] 读取 token 赋值给 config.token。
@@ -712,19 +730,22 @@ class MainWindow(QMainWindow):
             self.config_manager._sync_active_provider(self.config)
             self.parameter_group.apply_config(self.config)
             self.proxy_group.apply_config(
-                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
+                self._claude_proxy_flags(provider=provider)
             )
         finally:
             self._loading = False
 
         self._sync_parameter_group_layouts()
-        self._schedule_autosave()
+        self.config_manager.save(self.config)
         self._refresh_status()
         self._sync_claude_target_state()
 
-    def _sync_config_from_ui(self) -> AppConfig:
+    def _sync_config_from_ui(
+        self,
+        provider_override: str | None = None,
+    ) -> AppConfig:
         data = self.parameter_group.collect_config_data()
-        self.config.provider = data["provider"]
+        self.config.provider = provider_override or data["provider"]
         self.config.base_url = data["base_url"]
         self.config.token = self.config.auth_tokens.get(self.config.provider, "").strip()
         self.config.anthropic_model = data["anthropic_model"]
@@ -741,12 +762,12 @@ class MainWindow(QMainWindow):
         self.config.api_timeout_ms = data["api_timeout_ms"]
         self.config.has_completed_onboarding = data["has_completed_onboarding"]
 
-        self.config.proxy_enabled["claude"][data["launch_target"]] = (
-            self.proxy_group.collect_config_data()
-        )
+        self.config.proxy_enabled["claude"][self.config.provider][
+            data["launch_target"]
+        ] = self.proxy_group.collect_config_data()
         self.config.proxy = build_active_proxy(
             self.config.proxy_settings,
-            self.config.proxy_enabled["claude"][data["launch_target"]],
+            self._claude_proxy_flags(target=data["launch_target"]),
         )
 
         if self.config.project_path.strip():
@@ -840,12 +861,12 @@ class MainWindow(QMainWindow):
             setting.model = model
             self._store_codex_reasoning_state(provider, setting, model)
         proxy_target = proxy_target_override or self.config.codex.launch_target
-        self.config.proxy_enabled["codex"][proxy_target] = (
+        self.config.proxy_enabled["codex"][provider][proxy_target] = (
             self.codex_proxy_group.collect_config_data()
         )
         setting.proxy = build_active_proxy(
             self.config.proxy_settings,
-            self.config.proxy_enabled["codex"][proxy_target],
+            self._codex_proxy_flags(provider=provider, target=proxy_target),
         )
         self.config.codex.provider = self.codex_parameter_group.provider_combo.currentText()
         self.config.codex.launch_target = (
@@ -947,9 +968,7 @@ class MainWindow(QMainWindow):
             # 同步当前 provider 的 top-level 字段（用预设默认值填充空字段，恢复保留的 base_url/token）
             self.config_manager._sync_active_provider(self.config)
             self.parameter_group.apply_config(self.config)
-            self.proxy_group.apply_config(
-                self.config.proxy_enabled["claude"][self.config.claude_launch_target]
-            )
+            self.proxy_group.apply_config(self._claude_proxy_flags())
             self.log_console.clear_logs()
             self.config_manager.save(self.config)
         finally:
@@ -973,8 +992,8 @@ class MainWindow(QMainWindow):
                 thinking_enabled=bool(reasoning["default_thinking_enabled"]),
             )
         self._load_codex_reasoning_state(provider, current, current.model)
-        for target in self.config.proxy_enabled["codex"]:
-            self.config.proxy_enabled["codex"][target] = {
+        for target in self.config.proxy_enabled["codex"][provider]:
+            self.config.proxy_enabled["codex"][provider][target] = {
                 "http": False,
                 "https": False,
                 "socks5": False,
@@ -986,7 +1005,7 @@ class MainWindow(QMainWindow):
         try:
             self.codex_parameter_group.apply_config(self.config.codex)
             self.codex_proxy_group.apply_config(
-                self.config.proxy_enabled["codex"]["desktop"]
+                self._codex_proxy_flags(provider=provider, target="desktop")
             )
             self.codex_log_console.clear_logs()
         finally:

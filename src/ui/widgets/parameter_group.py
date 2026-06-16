@@ -36,6 +36,7 @@ from src.core.constants import (
     PROVIDER_CLAUDE_RELAY,
     PROVIDER_KIMI,
     PROVIDER_ZHIPU,
+    get_claude_context_window,
     get_provider_preset,
 )
 from src.ui.widgets.proxy_group import ProxyToggleGroup
@@ -113,6 +114,8 @@ class ParameterGroup(QGroupBox):
         self.model_haiku = QComboBox()
         self.model_subagent = QComboBox()
         self.effort_level = QComboBox()
+        self.auto_compact_window = QLineEdit()
+        self.auto_compact_window.setReadOnly(True)
 
         # 模型字段：自由输入框（保留控件但不再显示，保证 collect_config_data 兼容性）
         self.model_main_edit = QLineEdit()
@@ -138,6 +141,7 @@ class ParameterGroup(QGroupBox):
             self.model_haiku,
             self.model_subagent,
             self.effort_level,
+            self.auto_compact_window,
         ):
             widget.setMinimumHeight(26)
             widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -183,6 +187,9 @@ class ParameterGroup(QGroupBox):
         self.pick_btn.clicked.connect(self.on_pick_project)
 
         self._build_ui()
+        self.model_main.currentTextChanged.connect(
+            self._refresh_auto_compact_window
+        )
         self.set_provider(self.provider_combo.currentText())
 
         # 安装事件过滤器：禁用状态下点击 provider 下拉框时弹窗提示
@@ -196,7 +203,7 @@ class ParameterGroup(QGroupBox):
         self._layout.setVerticalSpacing(10)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setColumnStretch(1, 1)
-        self._layout.setRowStretch(14, 1)
+        self._layout.setRowStretch(15, 1)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # 行 0：API供应商
@@ -229,44 +236,49 @@ class ParameterGroup(QGroupBox):
         self._layout.addWidget(self._label_model_subagent, 5, 0)
         self._layout.addWidget(self.model_subagent, 5, 1)
 
-        # 行 6：推理强度
+        # 行 6：自动压缩窗口
+        self._label_auto_compact_window = self._make_label("自动压缩窗口")
+        self._layout.addWidget(self._label_auto_compact_window, 6, 0)
+        self._layout.addWidget(self.auto_compact_window, 6, 1)
+
+        # 行 7：推理强度
         self._label_effort = self._make_label("推理强度")
-        self._layout.addWidget(self._label_effort, 6, 0)
-        self._layout.addWidget(self.effort_level, 6, 1)
+        self._layout.addWidget(self._label_effort, 7, 0)
+        self._layout.addWidget(self.effort_level, 7, 1)
 
-        # 行 7：ENABLE_TOOL_SEARCH（Kimi 专用）
+        # 行 8：ENABLE_TOOL_SEARCH（Kimi 专用）
         self._label_enable_tool_search = self._make_label("启用工具搜索")
-        self._layout.addWidget(self._label_enable_tool_search, 7, 0)
-        self._layout.addWidget(self.enable_tool_search, 7, 1)
+        self._layout.addWidget(self._label_enable_tool_search, 8, 0)
+        self._layout.addWidget(self.enable_tool_search, 8, 1)
 
-        # 行 8：API_TIMEOUT_MS（GLM5 / MINIMAX 专用）
+        # 行 9：API_TIMEOUT_MS（GLM5 / MINIMAX 专用）
         self._label_api_timeout_ms = self._make_label("API请求超时时间（毫秒）")
-        self._layout.addWidget(self._label_api_timeout_ms, 8, 0)
-        self._layout.addWidget(self.api_timeout_ms, 8, 1)
+        self._layout.addWidget(self._label_api_timeout_ms, 9, 0)
+        self._layout.addWidget(self.api_timeout_ms, 9, 1)
 
-        # 行 9：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GLM5 / MINIMAX 专用）
+        # 行 10：CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC（GLM5 / MINIMAX 专用）
         self._label_disable_nonessential_traffic = self._make_label("禁用非必要网络流量")
-        self._layout.addWidget(self._label_disable_nonessential_traffic, 9, 0)
-        self._layout.addWidget(self.disable_nonessential_traffic, 9, 1)
+        self._layout.addWidget(self._label_disable_nonessential_traffic, 10, 0)
+        self._layout.addWidget(self.disable_nonessential_traffic, 10, 1)
 
-        # 行 10：hasCompletedOnboarding（小米MiMo / 方舟Coding Plan 专用）
+        # 行 11：hasCompletedOnboarding（小米MiMo / 方舟Coding Plan 专用）
         self._label_has_completed_onboarding = self._make_label("跳过首次引导")
-        self._layout.addWidget(self._label_has_completed_onboarding, 10, 0)
-        self._layout.addWidget(self.has_completed_onboarding, 10, 1)
+        self._layout.addWidget(self._label_has_completed_onboarding, 11, 0)
+        self._layout.addWidget(self.has_completed_onboarding, 11, 1)
 
-        # 行 11：启动目标
+        # 行 12：启动目标
         self.launch_target_label = self._make_label("启动目标")
-        self._layout.addWidget(self.launch_target_label, 11, 0)
-        self._layout.addWidget(self.launch_target_combo, 11, 1)
+        self._layout.addWidget(self.launch_target_label, 12, 0)
+        self._layout.addWidget(self.launch_target_combo, 12, 1)
 
-        # 行 12：代理启用
+        # 行 13：代理启用
         self.proxy_label = self._make_label("网络代理")
-        self._layout.addWidget(self.proxy_label, 12, 0)
-        self._layout.addWidget(self.proxy_toggles, 12, 1)
+        self._layout.addWidget(self.proxy_label, 13, 0)
+        self._layout.addWidget(self.proxy_toggles, 13, 1)
 
-        # 行 13：工作目录
-        self._layout.addWidget(self.pick_btn, 13, 0)
-        self._layout.addWidget(self.project_path_edit, 13, 1)
+        # 行 14：工作目录
+        self._layout.addWidget(self.pick_btn, 14, 0)
+        self._layout.addWidget(self.project_path_edit, 14, 1)
 
         self.setLayout(self._layout)
 
@@ -326,6 +338,7 @@ class ParameterGroup(QGroupBox):
             self._label_model_sonnet, self.model_sonnet,
             self._label_model_haiku, self.model_haiku,
             self._label_model_subagent, self.model_subagent,
+            self._label_auto_compact_window, self.auto_compact_window,
             self._label_effort, self.effort_level,
             self._label_enable_tool_search, self.enable_tool_search,
             self._label_disable_nonessential_traffic, self.disable_nonessential_traffic,
@@ -342,6 +355,7 @@ class ParameterGroup(QGroupBox):
             self._label_model_sonnet, self.model_sonnet,
             self._label_model_haiku, self.model_haiku,
             self._label_model_subagent, self.model_subagent,
+            self._label_auto_compact_window, self.auto_compact_window,
             self._label_effort, self.effort_level,
             self._label_enable_tool_search, self.enable_tool_search,
             self._label_disable_nonessential_traffic, self.disable_nonessential_traffic,
@@ -379,6 +393,7 @@ class ParameterGroup(QGroupBox):
         self._set_combo_items(self.model_haiku, preset.model_options, preset.default_haiku_model_default)
         self._set_combo_items(self.model_subagent, preset.model_options, preset.subagent_model_default)
         self._set_combo_items(self.effort_level, preset.effort_level_options, preset.effort_level_default)
+        self._refresh_auto_compact_window()
 
         # 根据预设隐藏/显示 effort_level
         if preset.hide_effort_level:
@@ -443,6 +458,7 @@ class ParameterGroup(QGroupBox):
 
         if not preset.parameters_enabled:
             self.project_path_edit.setText(config.project_path)
+            self._refresh_auto_compact_window()
             return
 
         # 所有有参数的 provider（含中转）：下拉框恢复上次选择
@@ -493,6 +509,16 @@ class ParameterGroup(QGroupBox):
                 self.has_completed_onboarding.setCurrentIndex(0)
 
         self.project_path_edit.setText(config.project_path)
+        self._refresh_auto_compact_window()
+
+    def _refresh_auto_compact_window(self) -> None:
+        context_window = get_claude_context_window(
+            self.provider_combo.currentText(),
+            self.model_main.currentText(),
+        )
+        self.auto_compact_window.setText(
+            str(context_window) if context_window is not None else ""
+        )
 
     def collect_config_data(self) -> dict:
         """收集当前 UI 上的参数配置，统一从下拉框读取。"""

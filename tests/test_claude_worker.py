@@ -54,6 +54,25 @@ class ClaudeWorkerTests(unittest.TestCase):
         self.assertNotIn("API_TIMEOUT_MS", env)
         self.assertNotIn("HAS_COMPLETED_ONBOARDING", env)
 
+    def test_default_model_sets_auto_compact_window(self) -> None:
+        env = build_env(self._config())
+
+        self.assertEqual(
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"],
+            "1000000",
+        )
+
+    def test_official_provider_clears_stale_auto_compact_window(self) -> None:
+        config = AppConfig()
+        with patch.dict(
+            "src.services.env_builder_service.os.environ",
+            {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "stale"},
+            clear=True,
+        ):
+            env = build_env(config)
+
+        self.assertNotIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", env)
+
 
 if __name__ == "__main__":
     unittest.main()

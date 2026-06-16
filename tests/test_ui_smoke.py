@@ -12,7 +12,11 @@ from PyQt6.QtWidgets import QApplication, QLabel, QListWidget, QTabWidget
 
 from src.ui.main_window import MainWindow
 from src.ui.widgets.auth_settings_dialog import AuthSettingsDialog
-from src.core.config_manager import CodexProviderSettings, ProviderSettings
+from src.core.config_manager import (
+    AppConfig,
+    CodexProviderSettings,
+    ProviderSettings,
+)
 from src.core.constants import APP_NAME
 
 
@@ -21,12 +25,26 @@ class UiSmokeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self) -> None:
+        self._config_load = patch(
+            "src.ui.main_window.ConfigManager.load",
+            side_effect=AppConfig,
+        )
+        self._config_save = patch(
+            "src.ui.main_window.ConfigManager.save",
+            return_value=None,
+        )
+        self._config_load.start()
+        self._config_save.start()
+        self.addCleanup(self._config_load.stop)
+        self.addCleanup(self._config_save.stop)
+
     def test_main_window_has_two_product_tabs(self) -> None:
         window = MainWindow()
         try:
             window.show()
             QApplication.processEvents()
-            self.assertEqual(APP_NAME, "cc模型管理器v2.3.1")
+            self.assertEqual(APP_NAME, "cc模型管理器v2.3.2")
             self.assertEqual(window.windowTitle(), APP_NAME)
             self.assertEqual(window.product_tabs.count(), 2)
             self.assertGreaterEqual(window.width(), window.minimumWidth())
@@ -101,6 +119,13 @@ class UiSmokeTests(unittest.TestCase):
                 window.parameter_group._label_model_subagent.text(),
                 "子代理模型",
             )
+            self.assertEqual(
+                window.parameter_group._label_auto_compact_window.text(),
+                "自动压缩窗口",
+            )
+            self.assertTrue(
+                window.parameter_group.auto_compact_window.isReadOnly()
+            )
             self.assertEqual(window.parameter_group._label_effort.text(), "推理强度")
             self.assertEqual(
                 window.parameter_group._label_enable_tool_search.text(),
@@ -129,7 +154,7 @@ class UiSmokeTests(unittest.TestCase):
                 [
                     "启动Claude Code cli版",
                     "启动VS Code",
-                    "升级Claude Code cli版",
+                    "升级Claude Code cli版(国内快速镜像)",
                 ],
             )
             self.assertEqual(
@@ -147,7 +172,7 @@ class UiSmokeTests(unittest.TestCase):
                     "启动Codex 桌面版",
                     "启动Codex cli版",
                     "启动VS Code",
-                    "升级Codex cli版",
+                    "升级Codex cli版(国内快速镜像)",
                 ],
             )
             self.assertEqual(
@@ -607,7 +632,42 @@ class UiSmokeTests(unittest.TestCase):
             window.codex_parameter_group.provider_combo.setCurrentText("Kimi")
             saved = window.config.codex.provider_settings["DeepSeek"]
             self.assertEqual(saved.model, "deepseek-v4-flash")
+            self.assertFalse(window.codex_proxy_group.http.isChecked())
+            window.codex_parameter_group.provider_combo.setCurrentText("DeepSeek")
             self.assertTrue(window.codex_proxy_group.http.isChecked())
+        finally:
+            window._loading = True
+            window.close()
+
+    def test_claude_provider_switch_refreshes_independent_proxy_flags(self) -> None:
+        window = MainWindow()
+        try:
+            with patch.object(window.config_manager, "save") as save:
+                window.parameter_group.provider_combo.setCurrentText("DeepSeek")
+                window.proxy_group.http.setChecked(True)
+                window.parameter_group.provider_combo.setCurrentText("Kimi")
+                self.assertFalse(window.proxy_group.http.isChecked())
+                window.proxy_group.https.setChecked(True)
+                window.parameter_group.provider_combo.setCurrentText("DeepSeek")
+                self.assertTrue(window.proxy_group.http.isChecked())
+                self.assertFalse(window.proxy_group.https.isChecked())
+                save.assert_called()
+        finally:
+            window._loading = True
+            window.close()
+
+    def test_claude_auto_compact_window_tracks_default_model(self) -> None:
+        window = MainWindow()
+        try:
+            group = window.parameter_group
+            group.provider_combo.setCurrentText("智谱GLM")
+            self.assertEqual(group.model_main.currentText(), "glm-5.2[1m]")
+            self.assertEqual(group.model_opus.currentText(), "glm-5.2[1m]")
+            self.assertEqual(group.model_sonnet.currentText(), "glm-5.2[1m]")
+            self.assertEqual(group.model_haiku.currentText(), "glm-4.5-air")
+            self.assertEqual(group.auto_compact_window.text(), "1000000")
+            group.model_main.setCurrentText("glm-4.5-air")
+            self.assertEqual(group.auto_compact_window.text(), "200000")
         finally:
             window._loading = True
             window.close()
@@ -732,29 +792,31 @@ class UiSmokeTests(unittest.TestCase):
         window = MainWindow()
         try:
             with patch.object(window.config_manager, "save"):
-                window.config.proxy_enabled["claude"]["cli"] = {
+                claude_provider = window.config.provider
+                codex_provider = window.config.codex.provider
+                window.config.proxy_enabled["claude"][claude_provider]["cli"] = {
                     "http": False,
                     "https": False,
                     "socks5": False,
                 }
-                window.config.proxy_enabled["claude"]["upgrade"] = {
+                window.config.proxy_enabled["claude"][claude_provider]["upgrade"] = {
                     "http": False,
                     "https": False,
                     "socks5": False,
                 }
-                window.config.proxy_enabled["codex"]["cli"] = {
+                window.config.proxy_enabled["codex"][codex_provider]["cli"] = {
                     "http": False,
                     "https": False,
                     "socks5": False,
                 }
-                window.config.proxy_enabled["codex"]["upgrade"] = {
+                window.config.proxy_enabled["codex"][codex_provider]["upgrade"] = {
                     "http": False,
                     "https": False,
                     "socks5": False,
                 }
                 window.parameter_group.set_launch_target("cli")
                 window.proxy_group.apply_config(
-                    window.config.proxy_enabled["claude"]["cli"]
+                    window.config.proxy_enabled["claude"][claude_provider]["cli"]
                 )
                 window.proxy_group.http.setChecked(True)
                 window.parameter_group.set_launch_target("upgrade")
@@ -769,7 +831,7 @@ class UiSmokeTests(unittest.TestCase):
 
                 window.codex_parameter_group.set_launch_target("cli")
                 window.codex_proxy_group.apply_config(
-                    window.config.proxy_enabled["codex"]["cli"]
+                    window.config.proxy_enabled["codex"][codex_provider]["cli"]
                 )
                 window.codex_proxy_group.https.setChecked(True)
                 window.codex_parameter_group.set_launch_target("upgrade")

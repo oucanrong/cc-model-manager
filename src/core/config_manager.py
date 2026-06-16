@@ -48,7 +48,7 @@ class ProxyConfig:
     socks5: ProxyItem = field(default_factory=ProxyItem)
 
 
-def create_proxy_enabled() -> dict[str, dict[str, dict[str, bool]]]:
+def create_proxy_enabled() -> dict[str, dict[str, dict[str, dict[str, bool]]]]:
     def targets(options) -> dict[str, dict[str, bool]]:
         return {
             target: {"http": False, "https": False, "socks5": False}
@@ -56,8 +56,14 @@ def create_proxy_enabled() -> dict[str, dict[str, dict[str, bool]]]:
         }
 
     return {
-        "claude": targets(CLAUDE_LAUNCH_TARGET_OPTIONS),
-        "codex": targets(CODEX_LAUNCH_TARGET_OPTIONS),
+        "claude": {
+            provider: targets(CLAUDE_LAUNCH_TARGET_OPTIONS)
+            for provider in PROVIDER_OPTIONS
+        },
+        "codex": {
+            provider: targets(CODEX_LAUNCH_TARGET_OPTIONS)
+            for provider in CODEX_PROVIDER_OPTIONS
+        },
     }
 
 
@@ -168,7 +174,7 @@ class AppConfig:
     project_path: str = ""
     proxy: ProxyConfig = field(default_factory=ProxyConfig)
     proxy_settings: ProxyConfig = field(default_factory=ProxyConfig)
-    proxy_enabled: dict[str, dict[str, dict[str, bool]]] = field(
+    proxy_enabled: dict[str, dict[str, dict[str, dict[str, bool]]]] = field(
         default_factory=create_proxy_enabled
     )
     recent_projects: list[str] = field(default_factory=list)
@@ -231,7 +237,9 @@ class ConfigManager:
         config.effort_level = ps.effort_level or preset.effort_level_default
         config.proxy = build_active_proxy(
             config.proxy_settings,
-            config.proxy_enabled["claude"][config.claude_launch_target],
+            config.proxy_enabled["claude"][config.provider][
+                config.claude_launch_target
+            ],
         )
         ps.proxy = copy.deepcopy(config.proxy)
         # Kimi 专用参数
@@ -327,12 +335,25 @@ class ConfigManager:
             item.enabled = False
         proxy_enabled = create_proxy_enabled()
         raw_proxy_enabled = data.get("proxy_enabled") or {}
-        for product, targets in proxy_enabled.items():
-            raw_targets = raw_proxy_enabled.get(product) or {}
-            for target, protocols in targets.items():
-                raw_protocols = raw_targets.get(target) or {}
-                for protocol in protocols:
-                    protocols[protocol] = bool(raw_protocols.get(protocol, False))
+        for product, providers in proxy_enabled.items():
+            raw_product = raw_proxy_enabled.get(product) or {}
+            target_options = (
+                CLAUDE_LAUNCH_TARGET_OPTIONS
+                if product == "claude"
+                else CODEX_LAUNCH_TARGET_OPTIONS
+            )
+            target_names = {target for target, _label in target_options}
+            is_legacy = any(target in raw_product for target in target_names)
+            for provider_name, targets in providers.items():
+                raw_targets = raw_product if is_legacy else (
+                    raw_product.get(provider_name) or {}
+                )
+                for target, protocols in targets.items():
+                    raw_protocols = raw_targets.get(target) or {}
+                    for protocol in protocols:
+                        protocols[protocol] = bool(
+                            raw_protocols.get(protocol, False)
+                        )
         codex_settings: dict[str, CodexProviderSettings] = {}
         raw_codex_settings = codex_data.get("provider_settings") or {}
         for provider_name in CODEX_PROVIDER_OPTIONS:
@@ -417,7 +438,7 @@ class ConfigManager:
                 model_reasoning=model_reasoning,
                 proxy=build_active_proxy(
                     proxy_settings,
-                    proxy_enabled["codex"][codex_launch_target],
+                    proxy_enabled["codex"][provider_name][codex_launch_target],
                 ),
             )
 
@@ -442,7 +463,7 @@ class ConfigManager:
             # provider_settings[provider] 中深拷贝加载当前 provider 的真实代理配置
             proxy=build_active_proxy(
                 proxy_settings,
-                proxy_enabled["claude"][claude_launch_target],
+                proxy_enabled["claude"][provider][claude_launch_target],
             ),
             proxy_settings=proxy_settings,
             proxy_enabled=proxy_enabled,
